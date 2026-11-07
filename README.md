@@ -12,7 +12,7 @@ A web app you add to your iPhone Home Screen. Each folder of audio files is one 
 - Speed from 0.75× to 3×, saved per book.
 - Sleep timer: 5–90 minutes, or the end of the current track.
 - Track list, percentage finished, and time left in the book.
-- Uses a cover image if the folder has one (`cover.jpg`, `folder.jpg`, or the first image).
+- **Cover art:** uses an image in the folder (`cover.jpg`, `folder.jpg`, or the first image). If there isn't one, it uses the artwork embedded in the audio files (MP3 ID3 tags, M4A/M4B cover art). Books added earlier get their embedded artwork the next time the app opens.
 - Rename a book, start it over, mark it finished, or delete it.
 
 Supported formats on iPhone: MP3, M4A, M4B, AAC, WAV, FLAC, AIFF.
@@ -50,6 +50,7 @@ The app needs to be served over HTTPS. GitHub Pages is the easiest option:
 | `styles.css` | Styles: dark theme with automatic light mode, safe areas for the iPhone notch |
 | `app.js` | Library, importing, player, saving progress, lock-screen controls |
 | `db.js` | IndexedDB storage for books and audio files |
+| `artwork.js` | Reads cover art embedded in MP3 (ID3v2) and M4A/M4B (MP4 `covr`) files |
 | `sw.js` | Service worker that caches the app so it opens offline |
 | `manifest.webmanifest`, `icons/` | Home Screen name and icon |
 

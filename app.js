@@ -1,4 +1,5 @@
 import * as db from './db.js';
+import { extractArtwork } from './artwork.js';
 
 // ---------- Constants ----------
 const AUDIO_TYPES = {
@@ -620,6 +621,13 @@ async function importGroup(group, onProgress) {
       coverId = uid();
       const type = IMAGE_TYPES[extOf(cover.name)] || cover.type || 'image/jpeg';
       await db.put('files', { id: coverId, bookId, blob: cover.slice(0, cover.size, type) });
+    } else {
+      // No image in the folder: use the artwork embedded in the audio files.
+      const art = await findEmbeddedArt(group.audio);
+      if (art) {
+        coverId = uid();
+        await db.put('files', { id: coverId, bookId, blob: art });
+      }
     }
     const book = {
       id: bookId,
@@ -632,12 +640,45 @@ async function importGroup(group, onProgress) {
       createdAt: Date.now(),
       lastPlayed: 0,
       finished: false,
+      artChecked: true,
     };
     await db.put('books', book);
     return book;
   } catch (err) {
     await db.deleteFilesForBook(bookId).catch(() => {});
     throw err;
+  }
+}
+
+async function findEmbeddedArt(blobs, tries = 3) {
+  for (const blob of blobs.slice(0, tries)) {
+    const art = await extractArtwork(blob);
+    if (art) return art;
+  }
+  return null;
+}
+
+// Books added before embedded artwork was supported: look inside their audio once.
+async function backfillArtwork() {
+  for (const book of books.filter((b) => !b.coverId && !b.artChecked)) {
+    const blobs = [];
+    for (const t of book.tracks.slice(0, 3)) {
+      const rec = await db.get('files', t.id).catch(() => null);
+      if (rec?.blob) blobs.push(rec.blob);
+    }
+    const art = await findEmbeddedArt(blobs);
+    if (!books.includes(book)) continue;
+    book.artChecked = true;
+    if (art) {
+      book.coverId = uid();
+      await db.put('files', { id: book.coverId, bookId: book.id, blob: art }).catch(() => { book.coverId = null; });
+      if (book.coverId) {
+        await loadCover(book);
+        if (cur && cur.book.id === book.id) { renderPlayer(); renderMini(); updateMediaSession(); }
+        renderLibrary();
+      }
+    }
+    await persistBook(book);
   }
 }
 
@@ -983,6 +1024,7 @@ async function init() {
     renderLibrary();
   }
 
+  backfillArtwork();
   probeQueue.push(...books.filter((b) => !durationsKnown(b)));
   setTimeout(runProbes, 1500);
 }

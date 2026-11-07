@@ -1,0 +1,133 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+  <title>Audiobooks</title>
+  <meta name="description" content="Offline audiobook player. Each folder is a book; your place is saved automatically.">
+  <meta name="theme-color" content="#14161b">
+  <meta name="apple-mobile-web-app-capable" content="yes">
+  <meta name="mobile-web-app-capable" content="yes">
+  <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
+  <meta name="apple-mobile-web-app-title" content="Audiobooks">
+  <link rel="apple-touch-icon" href="icons/apple-touch-icon.png">
+  <link rel="icon" type="image/png" href="icons/icon-192.png">
+  <link rel="manifest" href="manifest.webmanifest">
+  <link rel="stylesheet" href="styles.css">
+</head>
+<body>
+  <main id="library" class="library">
+    <header class="topbar">
+      <h1>Audiobooks</h1>
+      <button id="addBtn" class="icon-btn accent" aria-label="Add book">
+        <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M12 5v14M5 12h14"/></svg>
+      </button>
+    </header>
+
+    <div id="installHint" class="hint" hidden>
+      <p>To install: tap <strong>Share</strong> <svg class="inline" viewBox="0 0 24 24" aria-hidden="true"><path d="M12 3v12M8 7l4-4 4 4M5 11v9h14v-9"/></svg> then <strong>Add to Home Screen</strong>. Books you add are stored on this device.</p>
+      <button id="hideHint" class="link-btn">Dismiss</button>
+    </div>
+
+    <ul id="bookList" class="book-list"></ul>
+
+    <div id="empty" class="empty" hidden>
+      <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M4 19V5a2 2 0 0 1 2-2h13v16H6a2 2 0 0 0-2 2zm0 0a2 2 0 0 0 2 2h13M8 7h7"/></svg>
+      <h2>No books yet</h2>
+      <p>Tap <strong>+</strong> and choose a folder of audio files. Each folder becomes a book.</p>
+      <button id="emptyAdd" class="primary-btn">Add a book</button>
+    </div>
+
+    <p id="storageInfo" class="storage"></p>
+  </main>
+
+  <div id="mini" class="mini" hidden>
+    <button id="miniOpen" class="mini-open" aria-label="Open player">
+      <div id="miniCover" class="cover small"></div>
+      <div class="mini-text">
+        <span id="miniTrack" class="mini-track"></span>
+        <span id="miniBook" class="mini-book"></span>
+      </div>
+    </button>
+    <button id="miniPlay" class="icon-btn" aria-label="Play">
+      <svg class="i-play" viewBox="0 0 24 24" aria-hidden="true"><path class="fill" d="M7 4.5v15l12.5-7.5z"/></svg>
+      <svg class="i-pause" viewBox="0 0 24 24" aria-hidden="true"><path class="fill" d="M6.5 4h4v16h-4zM13.5 4h4v16h-4z"/></svg>
+    </button>
+    <div class="mini-bar"><div id="miniFill"></div></div>
+  </div>
+
+  <section id="player" class="player" aria-hidden="true" aria-label="Player">
+    <header class="player-top">
+      <button id="closePlayer" class="icon-btn" aria-label="Back to library">
+        <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M6 9l6 6 6-6"/></svg>
+      </button>
+      <span class="player-label">Now playing</span>
+      <button id="tracksBtn" class="icon-btn" aria-label="Tracks">
+        <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M9 6h11M9 12h11M9 18h11M4.5 6h.01M4.5 12h.01M4.5 18h.01"/></svg>
+      </button>
+    </header>
+
+    <div class="cover-wrap"><div id="pCover" class="cover large"></div></div>
+
+    <div class="meta">
+      <h2 id="pTrack"></h2>
+      <p id="pBook"></p>
+    </div>
+
+    <div class="scrub">
+      <input type="range" id="seek" min="0" max="1000" value="0" step="1" aria-label="Position in track">
+      <div class="times"><span id="tCur">0:00</span><span id="tTrack"></span><span id="tLeft">-0:00</span></div>
+    </div>
+
+    <div class="controls">
+      <button id="prevBtn" class="icon-btn" aria-label="Previous track">
+        <svg viewBox="0 0 24 24" aria-hidden="true"><path class="fill" d="M18 5v14L8 12z"/><path d="M6 5v14"/></svg>
+      </button>
+      <button id="backBtn" class="icon-btn skip" aria-label="Back 15 seconds">
+        <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M4 12a8 8 0 1 0 2.5-5.8M4 4v4h4"/></svg>
+        <span>15</span>
+      </button>
+      <button id="playBtn" class="play-btn" aria-label="Play">
+        <svg class="i-play" viewBox="0 0 24 24" aria-hidden="true"><path class="fill" d="M7 4.5v15l12.5-7.5z"/></svg>
+        <svg class="i-pause" viewBox="0 0 24 24" aria-hidden="true"><path class="fill" d="M6.5 4h4v16h-4zM13.5 4h4v16h-4z"/></svg>
+      </button>
+      <button id="fwdBtn" class="icon-btn skip" aria-label="Forward 30 seconds">
+        <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M20 12a8 8 0 1 1-2.5-5.8M20 4v4h-4"/></svg>
+        <span>30</span>
+      </button>
+      <button id="nextBtn" class="icon-btn" aria-label="Next track">
+        <svg viewBox="0 0 24 24" aria-hidden="true"><path class="fill" d="M6 5v14l10-7z"/><path d="M18 5v14"/></svg>
+      </button>
+    </div>
+
+    <div class="extras">
+      <button id="speedBtn" class="pill" aria-label="Playback speed">1×</button>
+      <span id="bookProg" class="book-prog"></span>
+      <button id="sleepBtn" class="pill" aria-label="Sleep timer">
+        <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M20 14.5A8 8 0 1 1 9.5 4a6.5 6.5 0 0 0 10.5 10.5z"/></svg>
+        <span id="sleepLabel">Sleep</span>
+      </button>
+    </div>
+  </section>
+
+  <div id="sheet" class="sheet-backdrop" hidden>
+    <div class="sheet" role="dialog" aria-modal="true" aria-labelledby="sheetTitle">
+      <h3 id="sheetTitle"></h3>
+      <div id="sheetBody" class="sheet-body"></div>
+      <button id="sheetCancel" class="sheet-cancel">Cancel</button>
+    </div>
+  </div>
+
+  <div id="busy" class="busy" hidden>
+    <div class="busy-card"><div class="spinner"></div><p id="busyText">Importing…</p></div>
+  </div>
+
+  <div id="toast" class="toast" role="status" hidden></div>
+
+  <input type="file" id="pickFolder" webkitdirectory multiple hidden>
+  <input type="file" id="pickFiles" multiple hidden>
+  <audio id="audio" preload="auto"></audio>
+
+  <script type="module" src="app.js"></script>
+</body>
+</html>

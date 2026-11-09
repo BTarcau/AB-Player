@@ -32,8 +32,8 @@ function makeImage(bytes, mimeHint) {
 }
 
 // ---------- ID3v2 ----------
-const syncsafe = (b, i) => (b[i] << 21) | (b[i + 1] << 14) | (b[i + 2] << 7) | b[i + 3];
-const be32 = (b, i) => ((b[i] << 24) >>> 0) + (b[i + 1] << 16) + (b[i + 2] << 8) + b[i + 3];
+export const syncsafe = (b, i) => (b[i] << 21) | (b[i + 1] << 14) | (b[i + 2] << 7) | b[i + 3];
+export const be32 = (b, i) => ((b[i] << 24) >>> 0) + (b[i + 1] << 16) + (b[i + 2] << 8) + b[i + 3];
 
 function unsync(bytes) {
   const out = new Uint8Array(bytes.length);
@@ -137,7 +137,7 @@ async function readAtomHeader(blob, offset) {
 }
 
 // Find an atom's children inside a buffer.
-function findChild(buf, start, end, type) {
+export function findChild(buf, start, end, type) {
   let pos = start;
   while (pos + 8 <= end) {
     let size = be32(buf, pos);
@@ -152,8 +152,9 @@ function findChild(buf, start, end, type) {
   return null;
 }
 
-async function fromMP4(blob) {
-  // Walk the top-level atoms to find moov (it is often at the end of large files).
+// Returns the contents of the top-level 'moov' atom, or null.
+// Walks the top-level atoms because moov is often at the end of large files.
+export async function readMoov(blob) {
   let offset = 0;
   let moov = null;
   while (offset < blob.size) {
@@ -163,8 +164,12 @@ async function fromMP4(blob) {
     offset += atom.size;
   }
   if (!moov || moov.size > MAX_MOOV_BYTES) return null;
+  return new Uint8Array(await blob.slice(moov.offset + moov.headerLen, moov.offset + moov.size).arrayBuffer());
+}
 
-  const buf = new Uint8Array(await blob.slice(moov.offset + moov.headerLen, moov.offset + moov.size).arrayBuffer());
+async function fromMP4(blob) {
+  const buf = await readMoov(blob);
+  if (!buf) return null;
   const udta = findChild(buf, 0, buf.length, 'udta');
   if (!udta) return null;
   const meta = findChild(buf, udta.start, udta.end, 'meta');

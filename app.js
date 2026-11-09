@@ -13,6 +13,8 @@ const SPEEDS = [0.75, 0.9, 1, 1.1, 1.2, 1.3, 1.5, 1.75, 2, 2.5, 3];
 const SKIP_BACK = 15;
 const SKIP_FWD = 30;
 const SAVE_EVERY_MS = 5000;
+const REWIND_AFTER_INTERRUPTION = 3;        // seconds to go back after a call
+const MAX_AUTO_RESUME_MS = 30 * 60 * 1000;  // don't auto-resume after 30+ minutes
 const LS_LAST = 'ab-player:last';
 const LS_HINT = 'ab-player:hint-dismissed';
 
@@ -291,7 +293,28 @@ async function loadTrack(book, index, time = 0) {
   return true;
 }
 
-function play() {
+// Reload the current track at its current position (optionally a little
+// earlier). After a phone call or a long pause, iOS can leave the audio
+// element unable to play until it is given its source again.
+function reloadCurrent(rewind = 0) {
+  if (!cur) return Promise.resolve(false);
+  const t = Math.max(0, currentTimeForUI() - rewind);
+  return loadTrack(cur.book, cur.index, t);
+}
+
+// If playback "starts" but the position doesn't move, reload and try again.
+let stallTimer = null;
+function watchForStall() {
+  clearTimeout(stallTimer);
+  const startedAt = audio.currentTime;
+  stallTimer = setTimeout(() => {
+    if (cur && !audio.paused && ready && Math.abs(audio.currentTime - startedAt) < 0.2) {
+      reloadCurrent().then((ok) => ok && play({ retry: false }));
+    }
+  }, 3000);
+}
+
+function play({ retry = true, watch = false } = {}) {
   if (!cur) return;
   const { book, index } = cur;
   // Finished book: start over from the beginning.
@@ -300,21 +323,37 @@ function play() {
     loadTrack(book, 0, 0).then((ok) => ok && play());
     return;
   }
+  interruption = null;
   audio.playbackRate = book.speed || 1;
   const p = audio.play();
-  if (p) p.catch((err) => { if (err.name !== 'AbortError') toast('Tap play again to start audio.'); });
+  if (watch) watchForStall();
+  if (p) {
+    p.catch((err) => {
+      if (err.name === 'AbortError') return;
+      if (retry) { reloadCurrent().then((ok) => ok && play({ retry: false })); return; }
+      toast('Tap play again to start audio.');
+    });
+  }
+}
+
+// Pauses the app asks for (as opposed to iOS pausing us for a phone call).
+let intentionalPause = false;
+function pauseAudio() {
+  if (audio.paused) return;
+  intentionalPause = true;
+  audio.pause();
 }
 
 function togglePlay() {
   if (!cur) return;
   if (audio.paused) play();
-  else audio.pause();
+  else pauseAudio();
 }
 
 async function openBook(book, { autoplay = false } = {}) {
   if (!cur || cur.book.id !== book.id) {
     savePosition();
-    audio.pause();
+    pauseAudio();
     const pos = book.position || { track: 0, time: 0 };
     const ok = await loadTrack(book, pos.track, pos.time);
     if (!ok) return;
@@ -393,7 +432,7 @@ function updateSleepUI() {
 function checkSleep() {
   if (sleep.mode === 'time' && Date.now() >= sleep.until) {
     setSleep('off');
-    audio.pause();
+    pauseAudio();
   }
 }
 
@@ -452,6 +491,9 @@ audio.addEventListener('play', () => {
 });
 
 audio.addEventListener('pause', () => {
+  const ours = intentionalPause || audio.ended;
+  intentionalPause = false;
+  if (!ours && cur) { lastSystemPauseAt = Date.now(); noteInterruption(); }
   savePosition();
   setPlayingClass();
   updatePositionState();
@@ -490,7 +532,10 @@ audio.addEventListener('error', () => {
 // Save whenever the app is backgrounded, switched away from, or closed.
 document.addEventListener('visibilitychange', () => {
   if (document.visibilityState === 'hidden') savePosition();
-  else { updateTimeUI(); setPlayingClass(); updateSleepUI(); }
+  else {
+    updateTimeUI(); setPlayingClass(); updateSleepUI();
+    if (interruption && sessionState() !== 'interrupted') resumeAfterInterruption();
+  }
 });
 window.addEventListener('pagehide', savePosition);
 window.addEventListener('beforeunload', savePosition);
@@ -528,10 +573,12 @@ function updatePositionState() {
 // paused in the background, reload the track at the saved position first.
 function resumeFromLockScreen() {
   if (!cur) return;
-  const needsReload = !audio.currentSrc || audio.error || audio.networkState === HTMLMediaElement.NETWORK_NO_SOURCE;
-  if (!needsReload) { play(); return; }
-  const pos = cur.book.position || { track: cur.index, time: 0 };
-  loadTrack(cur.book, pos.track, pos.time).then((ok) => ok && play());
+  const needsReload = interruption || !audio.currentSrc || audio.error
+    || audio.networkState === HTMLMediaElement.NETWORK_NO_SOURCE;
+  if (!needsReload) { play({ watch: true }); return; }
+  const rewind = interruption ? REWIND_AFTER_INTERRUPTION : 0;
+  interruption = null;
+  reloadCurrent(rewind).then((ok) => ok && play({ watch: true }));
 }
 
 function registerMediaHandlers() {
@@ -539,8 +586,8 @@ function registerMediaHandlers() {
   const ms = navigator.mediaSession;
   const handlers = {
     play: resumeFromLockScreen,
-    pause: () => audio.pause(),
-    stop: () => audio.pause(),
+    pause: pauseAudio,
+    stop: pauseAudio,
     seekbackward: (e) => skip(-(e?.seekOffset || SKIP_BACK)),
     seekforward: (e) => skip(e?.seekOffset || SKIP_FWD),
     seekto: (e) => { if (e?.seekTime != null) seekTo(e.seekTime); },
@@ -555,6 +602,51 @@ registerMediaHandlers();
 // Tell iOS this is a media-playback app (Safari 17+), so its audio session
 // behaves like a music or podcast app rather than a web page.
 try { if (navigator.audioSession) navigator.audioSession.type = 'playback'; } catch { /* unsupported */ }
+
+// ---------- Phone calls and other interruptions ----------
+// When a call (or Siri, an alarm, FaceTime...) interrupts playback, iOS pauses
+// the audio. Note it, and when the interruption ends, carry on from a few
+// seconds back. If iOS won't let the app restart on its own, the lock-screen
+// play button (or opening the app) picks up from the same place.
+let interruption = null; // { at } while a book is paused by an interruption
+
+function sessionState() {
+  try { return navigator.audioSession?.state || ''; } catch { return ''; }
+}
+
+function noteInterruption() {
+  // Without the Audio Session API we can't tell a call from, say, unplugging
+  // headphones, so only treat it as an interruption when iOS says so.
+  if (sessionState() === 'interrupted' || interruptedRecently) interruption = { at: Date.now() };
+}
+
+let interruptedRecently = false;
+let lastSystemPauseAt = 0; // when iOS (not the app) last paused playback
+
+async function resumeAfterInterruption() {
+  const pending = interruption;
+  interruption = null;
+  if (!pending || !cur || !audio.paused) return;
+  // Leave it paused if the interruption was very long.
+  if (Date.now() - pending.at > MAX_AUTO_RESUME_MS) { registerMediaHandlers(); updateMediaSession(); return; }
+  const ok = await reloadCurrent(REWIND_AFTER_INTERRUPTION);
+  if (ok) play({ watch: true });
+}
+
+if (navigator.audioSession && 'onstatechange' in navigator.audioSession) {
+  navigator.audioSession.addEventListener('statechange', () => {
+    const state = sessionState();
+    if (state === 'interrupted') {
+      // The pause event may arrive just before or just after this.
+      interruptedRecently = true;
+      if (cur && audio.paused && Date.now() - lastSystemPauseAt < 2000) interruption = interruption || { at: Date.now() };
+      setTimeout(() => { interruptedRecently = false; }, 2000);
+    } else if (interruption) {
+      // Give iOS a moment to hand the audio back after the call ends.
+      setTimeout(resumeAfterInterruption, 800);
+    }
+  });
+}
 
 // ---------- Importing ----------
 function cleanTrackName(name) {
@@ -781,7 +873,7 @@ async function runProbes() {
 async function deleteBook(book) {
   if (!window.confirm(`Delete “${book.title}” from this device? Your original files are not affected.`)) return;
   if (cur && cur.book.id === book.id) {
-    audio.pause();
+    pauseAudio();
     audio.removeAttribute('src');
     audio.load();
     if (objectUrl) URL.revokeObjectURL(objectUrl);
@@ -811,7 +903,7 @@ async function restartBook(book) {
 }
 
 async function markFinished(book) {
-  if (cur && cur.book.id === book.id) audio.pause();
+  if (cur && cur.book.id === book.id) pauseAudio();
   book.finished = true;
   const last = book.tracks.length - 1;
   book.position = { track: last, time: book.durations[last] || 0 };

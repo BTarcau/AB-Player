@@ -1,12 +1,15 @@
 // Offline cache for the app shell. Audiobooks themselves live in IndexedDB.
-// Bump VERSION whenever app files change so phones pick up the update.
-const VERSION = 'ab-player-v3';
+// The cache is named after the app version in version.js; changing it
+// makes phones fetch the new files and drop the old cache.
+importScripts('./version.js');
+const VERSION = `ab-player-${self.APP_VERSION}`;
 const SHELL = [
   './',
   './index.html',
   './styles.css',
   './app.js',
   './db.js',
+  './version.js',
   './artwork.js',
   './duration.js',
   './manifest.webmanifest',

@@ -24,6 +24,11 @@
       </button>
     </header>
 
+    <div id="updateBanner" class="hint update" hidden>
+      <p><strong>Update available.</strong> <span id="updateText"></span></p>
+      <button id="updateBtn" class="link-btn">Update now</button>
+    </div>
+
     <div id="installHint" class="hint" hidden>
       <p>To install: tap <strong>Share</strong> <svg class="inline" viewBox="0 0 24 24" aria-hidden="true"><path d="M12 3v12M8 7l4-4 4 4M5 11v9h14v-9"/></svg> then <strong>Add to Home Screen</strong>. Books you add are stored on this device.</p>
       <button id="hideHint" class="link-btn">Dismiss</button>
@@ -39,6 +44,7 @@
     </div>
 
     <p id="storageInfo" class="storage"></p>
+    <p id="versionInfo" class="storage version"></p>
   </main>
 
   <div id="mini" class="mini" hidden>
@@ -128,6 +134,7 @@
   <input type="file" id="pickFiles" multiple hidden>
   <audio id="audio" preload="auto"></audio>
 
+  <script src="version.js"></script>
   <script type="module" src="app.js"></script>
 </body>
 </html>

@@ -52,10 +52,11 @@ The app needs to be served over HTTPS. GitHub Pages is the easiest option:
 | `app.js` | Library, importing, player, saving progress, lock-screen controls |
 | `db.js` | IndexedDB storage for books and audio files |
 | `artwork.js` | Reads cover art embedded in MP3 (ID3v2) and M4A/M4B (MP4 `covr`) files |
+| `version.js` | The app's version number |
 | `duration.js` | Reads track lengths from MP3, M4A/M4B, WAV and FLAC headers |
 | `sw.js` | Service worker that caches the app so it opens offline |
 | `manifest.webmanifest`, `icons/` | Home Screen name and icon |
 
 No build step. To run it locally, serve the folder with any static server, for example `python3 -m http.server`, and open `http://localhost:8000`.
 
-When you change app files, bump `VERSION` in `sw.js` so installed copies pick up the update.
+When you change app files, bump the number in `version.js`. Installed copies then show an **Update available** banner, and the new number appears at the bottom of the library once they've updated.

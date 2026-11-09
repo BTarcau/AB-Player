@@ -137,6 +137,8 @@ svg.inline { width: 16px; height: 16px; vertical-align: -3px; }
 }
 
 .storage { text-align: center; font-size: 12px; color: var(--muted); margin-top: 24px; }
+.storage.version { margin-top: 4px; }
+.hint.update { border-color: var(--accent); color: var(--text); }
 
 /* ---------- Mini player ---------- */
 .mini {

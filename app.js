@@ -998,6 +998,41 @@ $('#tracksBtn').addEventListener('click', async () => {
   });
 })();
 
+// ---------- Version / updates ----------
+const APP_VERSION = self.APP_VERSION || 'dev';
+$('#versionInfo').textContent = `Version ${APP_VERSION}`;
+
+// Compare the running version with the one on the website. A Home Screen app
+// can stay open in memory for days, so check whenever it comes back to the front.
+let lastUpdateCheck = 0;
+async function checkForUpdate() {
+  if (!navigator.onLine || Date.now() - lastUpdateCheck < 60000) return;
+  lastUpdateCheck = Date.now();
+  try {
+    const res = await fetch(`./version.js?check=${Date.now()}`, { cache: 'no-store' });
+    if (!res.ok) return;
+    const latest = (await res.text()).match(/APP_VERSION\s*=\s*['"]([^'"]+)['"]/)?.[1];
+    if (latest && latest !== APP_VERSION) {
+      $('#updateText').textContent = `Version ${latest} is ready (you have ${APP_VERSION}).`;
+      $('#updateBanner').hidden = false;
+    }
+  } catch { /* offline */ }
+}
+
+$('#updateBtn').addEventListener('click', async () => {
+  savePosition();
+  try {
+    const reg = await navigator.serviceWorker?.getRegistration();
+    await reg?.update();
+  } catch { /* ignore */ }
+  location.reload();
+});
+
+document.addEventListener('visibilitychange', () => {
+  if (document.visibilityState === 'visible') checkForUpdate();
+});
+setTimeout(checkForUpdate, 3000);
+
 // ---------- Startup ----------
 async function init() {
   try {
@@ -1044,6 +1079,8 @@ init();
 
 if ('serviceWorker' in navigator) {
   window.addEventListener('load', () => {
-    navigator.serviceWorker.register('./sw.js').catch((err) => console.warn('SW registration failed', err));
+    // The version in the URL makes iOS treat each release as a new service worker.
+    navigator.serviceWorker.register(`./sw.js?v=${encodeURIComponent(APP_VERSION)}`)
+      .catch((err) => console.warn('SW registration failed', err));
   });
 }

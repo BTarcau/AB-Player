@@ -40,6 +40,7 @@ The app needs to be served over HTTPS. GitHub Pages is the easiest option:
 - **Storage.** Books are stored in the app's private storage on the phone. iOS gives Home Screen apps a large share of free space, and doesn't clear their data the way it can for websites you visit in Safari. Always open the app from the Home Screen icon: Safari and the Home Screen app keep separate storage.
 - **Deleting the Home Screen icon deletes its books and progress.**
 - **iOS can close the app in the background.** The worst case is losing the last few seconds of progress.
+- **Lock screen after a long pause.** If you pause and leave the phone for a long time, iOS may remove the app from the lock screen. Open the app and tap play; your place is kept.
 - **Track lengths** are read in the background after you import, so "time left" may show up a few seconds later.
 
 ## Files
@@ -51,6 +52,7 @@ The app needs to be served over HTTPS. GitHub Pages is the easiest option:
 | `app.js` | Library, importing, player, saving progress, lock-screen controls |
 | `db.js` | IndexedDB storage for books and audio files |
 | `artwork.js` | Reads cover art embedded in MP3 (ID3v2) and M4A/M4B (MP4 `covr`) files |
+| `duration.js` | Reads track lengths from MP3, M4A/M4B, WAV and FLAC headers |
 | `sw.js` | Service worker that caches the app so it opens offline |
 | `manifest.webmanifest`, `icons/` | Home Screen name and icon |
 

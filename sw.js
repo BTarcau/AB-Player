@@ -1,6 +1,6 @@
 // Offline cache for the app shell. Audiobooks themselves live in IndexedDB.
 // Bump VERSION whenever app files change so phones pick up the update.
-const VERSION = 'ab-player-v2';
+const VERSION = 'ab-player-v3';
 const SHELL = [
   './',
   './index.html',
@@ -8,6 +8,7 @@ const SHELL = [
   './app.js',
   './db.js',
   './artwork.js',
+  './duration.js',
   './manifest.webmanifest',
   './icons/apple-touch-icon.png',
   './icons/icon-192.png',

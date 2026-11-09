@@ -1,5 +1,6 @@
 import * as db from './db.js';
 import { extractArtwork } from './artwork.js';
+import { readDuration } from './duration.js';
 
 // ---------- Constants ----------
 const AUDIO_TYPES = {
@@ -284,6 +285,7 @@ async function loadTrack(book, index, time = 0) {
   persistBook(book);
 
   updateMediaSession();
+  registerMediaHandlers();
   renderPlayer();
   renderMini();
   return true;
@@ -444,6 +446,7 @@ audio.addEventListener('timeupdate', () => {
 audio.addEventListener('play', () => {
   if (cur) { cur.book.finished = false; cur.book.lastPlayed = Date.now(); }
   setPlayingClass();
+  updateMediaSession();
   updatePositionState();
   if ('mediaSession' in navigator) navigator.mediaSession.playbackState = 'playing';
 });
@@ -453,6 +456,8 @@ audio.addEventListener('pause', () => {
   setPlayingClass();
   updatePositionState();
   if ('mediaSession' in navigator) navigator.mediaSession.playbackState = 'paused';
+  // Keep the lock-screen controls attached to this player while paused.
+  registerMediaHandlers();
 });
 
 audio.addEventListener('ratechange', updatePositionState);
@@ -519,20 +524,37 @@ function updatePositionState() {
   } catch { /* ignore */ }
 }
 
-if ('mediaSession' in navigator) {
+// Play from the lock screen. If iOS has unloaded the audio while the app was
+// paused in the background, reload the track at the saved position first.
+function resumeFromLockScreen() {
+  if (!cur) return;
+  const needsReload = !audio.currentSrc || audio.error || audio.networkState === HTMLMediaElement.NETWORK_NO_SOURCE;
+  if (!needsReload) { play(); return; }
+  const pos = cur.book.position || { track: cur.index, time: 0 };
+  loadTrack(cur.book, pos.track, pos.time).then((ok) => ok && play());
+}
+
+function registerMediaHandlers() {
+  if (!('mediaSession' in navigator)) return;
   const ms = navigator.mediaSession;
   const handlers = {
-    play: () => play(),
+    play: resumeFromLockScreen,
     pause: () => audio.pause(),
     stop: () => audio.pause(),
-    seekbackward: (e) => skip(-(e.seekOffset || SKIP_BACK)),
-    seekforward: (e) => skip(e.seekOffset || SKIP_FWD),
-    seekto: (e) => { if (e.seekTime != null) seekTo(e.seekTime); },
+    seekbackward: (e) => skip(-(e?.seekOffset || SKIP_BACK)),
+    seekforward: (e) => skip(e?.seekOffset || SKIP_FWD),
+    seekto: (e) => { if (e?.seekTime != null) seekTo(e.seekTime); },
   };
   for (const [action, fn] of Object.entries(handlers)) {
     try { ms.setActionHandler(action, fn); } catch { /* unsupported action */ }
   }
 }
+
+registerMediaHandlers();
+
+// Tell iOS this is a media-playback app (Safari 17+), so its audio session
+// behaves like a music or podcast app rather than a web page.
+try { if (navigator.audioSession) navigator.audioSession.type = 'playback'; } catch { /* unsupported */ }
 
 // ---------- Importing ----------
 function cleanTrackName(name) {
@@ -724,15 +746,13 @@ async function handlePicked(fileList) {
 }
 
 // Work out each track's length in the background so the app can show
-// overall book progress and time remaining.
+// overall book progress and time remaining. Lengths are read from the file
+// headers: a second <audio> element would take over the lock-screen controls.
 const probeQueue = [];
 let probing = false;
 async function runProbes() {
   if (probing) return;
   probing = true;
-  const probe = new Audio();
-  probe.preload = 'metadata';
-  probe.muted = true;
   while (probeQueue.length) {
     const book = probeQueue.shift();
     if (!books.includes(book)) continue;
@@ -741,16 +761,8 @@ async function runProbes() {
       if (book.durations[i] > 0) continue;
       const rec = await db.get('files', book.tracks[i].id).catch(() => null);
       if (!rec?.blob) continue;
-      const url = URL.createObjectURL(rec.blob);
-      const d = await new Promise((resolve) => {
-        const done = (v) => { clearTimeout(timer); probe.onloadedmetadata = probe.onerror = null; resolve(v); };
-        const timer = setTimeout(() => done(0), 15000);
-        probe.onloadedmetadata = () => done(probe.duration);
-        probe.onerror = () => done(0);
-        probe.src = url;
-      });
-      URL.revokeObjectURL(url);
-      if (isFinite(d) && d > 0) {
+      const d = await readDuration(rec.blob);
+      if (isFinite(d) && d > 0 && !(book.durations[i] > 0)) {
         while (book.durations.length < book.tracks.length) book.durations.push(0);
         book.durations[i] = d;
         changed = true;
@@ -762,7 +774,6 @@ async function runProbes() {
       else updateTimeUI();
     }
   }
-  probe.removeAttribute('src');
   probing = false;
 }
 

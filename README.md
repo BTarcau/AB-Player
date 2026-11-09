@@ -40,6 +40,7 @@ The app needs to be served over HTTPS. GitHub Pages is the easiest option:
 - **Storage.** Books are stored in the app's private storage on the phone. iOS gives Home Screen apps a large share of free space, and doesn't clear their data the way it can for websites you visit in Safari. Always open the app from the Home Screen icon: Safari and the Home Screen app keep separate storage.
 - **Deleting the Home Screen icon deletes its books and progress.**
 - **iOS can close the app in the background.** The worst case is losing the last few seconds of progress.
+- **Phone calls.** When a call, FaceTime or Siri interrupts the book, it resumes by itself about 3 seconds back once the interruption ends (iOS 17 or later), unless the interruption lasted more than 30 minutes. If iOS doesn't let it restart on its own, press play on the lock screen or open the app.
 - **Lock screen after a long pause.** If you pause and leave the phone for a long time, iOS may remove the app from the lock screen. Open the app and tap play; your place is kept.
 - **Track lengths** are read in the background after you import, so "time left" may show up a few seconds later.
 

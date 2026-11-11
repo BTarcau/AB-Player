@@ -1,5 +1,7 @@
 # AB-Player — Audiobooks for iPhone
 
+> There is now also a native iPhone app, Lamplight, in [`ios/`](ios/README.md) with chapters, bookmarks, linked iCloud folders, smart rewind, and EPUB/PDF read-aloud with Kokoro running on the iPhone.
+
 A web app you add to your iPhone Home Screen. Each folder of audio files is one book. It plays the files in order and remembers where you stopped, whether you pause, lock the phone, switch apps or close the app.
 
 ## Features

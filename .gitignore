@@ -1,0 +1,10 @@
+ios/build/
+xcuserdata/
+*.xcuserstate
+.DS_Store
+ios/Vendor/
+ios/KokoroModel/*
+!ios/KokoroModel/README.md
+
+# Personal library data and phone backups from the cleanup scripts
+ios/library-cleanup/

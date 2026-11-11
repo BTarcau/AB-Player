@@ -11,6 +11,10 @@ final class SettingsPresentation {
     var showShelves = false
     var pickWatchFolder = false
     var pickBackup = false
+    var pickBackupFolder = false
+    /// Bumped when the backup folder changes (it lives in UserDefaults, which views don't observe).
+    var backupFolderTick = 0
+    /// The backup folder waiting to be saved to Files.
     var backupURL: URL?
 }
 
@@ -121,17 +125,23 @@ struct ReaderSettingsSections: View {
         }
 
         Section {
+            let _ = present.backupFolderTick
+            let folder = library.backupFolderName
             Button {
                 working = true
                 Task {
-                    do { present.backupURL = try await library.exportBackup() } catch { library.message = "Could not make the backup: \(error.localizedDescription)" }
+                    if folder != nil {
+                        await library.backUpToFolder()
+                    } else {
+                        do { present.backupURL = try await library.makeBackupFolder() } catch { library.message = "Could not make the backup: \(error.localizedDescription)" }
+                    }
                     working = false
                 }
             } label: {
                 HStack {
                     VStack(alignment: .leading) {
-                        Text("Back up to a file")
-                        Text("Every book, its shelves and your place in it").font(.caption).foregroundStyle(.secondary)
+                        Text(folder.map { "Back up to “\($0)”" } ?? "Back up")
+                        Text("Books stored in the app, every book's place and bookmarks, and your settings").font(.caption).foregroundStyle(.secondary)
                     }
                     Spacer()
                     if working { ProgressView() } else {
@@ -142,9 +152,27 @@ struct ReaderSettingsSections: View {
             }
             .tint(.primary)
             .disabled(working)
+            if let folder {
+                LabeledContent("Backup folder", value: folder)
+                Button("Change backup folder") { present.pickBackupFolder = true }
+                Button("Save a copy elsewhere…") {
+                    working = true
+                    Task {
+                        do { present.backupURL = try await library.makeBackupFolder() } catch { library.message = "Could not make the backup: \(error.localizedDescription)" }
+                        working = false
+                    }
+                }
+                .disabled(working)
+                Button("Stop using this folder", role: .destructive) {
+                    library.forgetBackupFolder()
+                    present.backupFolderTick += 1
+                }
+            } else {
+                Button("Choose a backup folder (iCloud Drive)") { present.pickBackupFolder = true }
+            }
             Button { present.pickBackup = true } label: {
                 VStack(alignment: .leading) {
-                    Text("Restore or merge from a file")
+                    Text("Restore or merge from a backup")
                     Text("Adds what is missing; newer positions win; nothing is deleted").font(.caption).foregroundStyle(.secondary)
                 }
             }
@@ -152,7 +180,7 @@ struct ReaderSettingsSections: View {
         } header: {
             Text("Back up and sync")
         } footer: {
-            Text("Save the backup to iCloud Drive, then restore it on your other device. Do it in both directions and the two stay in step. Ebook files are included; audiobook audio isn't (only their places, shelves and bookmarks).")
+            Text("Choose a folder in iCloud Drive once and every backup is saved there, then uploaded by iOS; restore it after reinstalling or on another device. A backup holds the ebooks and audiobooks stored in the app, with their audio. Audiobooks linked from another folder aren't copied; their place, bookmarks and shelves come back when you link them again.")
         }
     }
 
@@ -173,25 +201,65 @@ struct SettingsPresenters: ViewModifier {
             .sheet(isPresented: $present.showVoice) { VoiceSheet() }
             .sheet(isPresented: $present.showShelves) { ShelvesSheet() }
             .sheet(item: Binding(get: { present.backupURL.map(ShareItem.init) }, set: { if $0 == nil { present.backupURL = nil } })) { item in
-                ShareSheet(url: item.url)
+                ExportFolderPicker(url: item.url) { saved in
+                    if saved { library.backupSaved(); library.message = "Backup saved." }
+                    // The temporary copy (clones of the book folders) goes either way.
+                    try? FileManager.default.removeItem(at: item.url.deletingLastPathComponent())
+                    present.backupURL = nil
+                }
+                .ignoresSafeArea()
             }
             .fileImporter(isPresented: $present.pickWatchFolder, allowedContentTypes: [.folder]) { result in
                 if case .success(let url) = result { library.setWatchedFolder(url) }
             }
-            .fileImporter(isPresented: $present.pickBackup, allowedContentTypes: [.zip]) { result in
+            .fileImporter(isPresented: $present.pickBackupFolder, allowedContentTypes: [.folder]) { result in
+                if case .success(let url) = result {
+                    library.setBackupFolder(url)
+                    present.backupFolderTick += 1
+                }
+            }
+            .fileImporter(isPresented: $present.pickBackup, allowedContentTypes: [.folder, .zip]) { result in
                 if case .success(let url) = result {
                     Task {
-                        await library.importBackup(url)
+                        if Importer.isDirectory(url) {
+                            await library.restoreBackupFolder(url)
+                        } else {
+                            await library.importBackup(url)
+                        }
                         reader.clearAudio()
                     }
                 }
             }
+            .fileDialogDefaultDirectory(library.backupFolderURL())
     }
 }
 
 private struct ShareItem: Identifiable {
     let url: URL
     var id: String { url.path }
+}
+
+/// Saves a folder to Files or iCloud Drive (copied there; the app's own copy stays).
+struct ExportFolderPicker: UIViewControllerRepresentable {
+    let url: URL
+    var done: (Bool) -> Void
+
+    func makeCoordinator() -> Coordinator { Coordinator(done: done) }
+
+    func makeUIViewController(context: Context) -> UIDocumentPickerViewController {
+        let picker = UIDocumentPickerViewController(forExporting: [url], asCopy: true)
+        picker.delegate = context.coordinator
+        return picker
+    }
+
+    func updateUIViewController(_ vc: UIDocumentPickerViewController, context: Context) {}
+
+    final class Coordinator: NSObject, UIDocumentPickerDelegate {
+        let done: (Bool) -> Void
+        init(done: @escaping (Bool) -> Void) { self.done = done }
+        func documentPicker(_ controller: UIDocumentPickerViewController, didPickDocumentsAt urls: [URL]) { done(true) }
+        func documentPickerWasCancelled(_ controller: UIDocumentPickerViewController) { done(false) }
+    }
 }
 
 struct ShareSheet: UIViewControllerRepresentable {

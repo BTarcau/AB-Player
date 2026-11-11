@@ -255,6 +255,7 @@ final class Library {
                 books.append(book)
                 reloadCover(book)
                 save()
+                applyPendingRestore(to: book)
                 added.append(book)
             } catch {
                 failure = error

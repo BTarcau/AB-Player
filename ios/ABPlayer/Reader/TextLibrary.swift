@@ -195,50 +195,8 @@ extension Library {
         var books: [BackupBook]
     }
 
-    /// One file with every EPUB/PDF, covers, shelves, series and every book's place.
-    /// Audiobook audio isn't included (it's too large); their places and shelves are.
-    func exportBackup() async throws -> URL {
-        let settings = ReaderSettings.shared
-        var zip = ZipWriter()
-        var entries: [BackupBook] = []
-        for book in books {
-            let folder = folder(for: book)
-            var entry = BackupBook(title: book.title, author: book.author, narrator: book.narrator, kind: book.isText ? "text" : "audio",
-                                   shelves: book.shelves, series: book.series, seriesIndex: book.seriesIndex, seriesManual: book.seriesManual,
-                                   finished: book.finished, lastPlayed: book.lastPlayed, bookmarks: book.bookmarks)
-            if let text = book.text {
-                entry.sourceName = text.sourceName
-                entry.chapter = text.chapter
-                entry.sentence = text.sentence
-                entry.charsRead = text.charsRead
-                entry.positionAt = text.positionAt
-                if let data = try? Data(contentsOf: folder.appendingPathComponent(text.file)) {
-                    entry.file = "books/\(book.id.uuidString)/\(text.sourceName)"
-                    zip.add(entry.file!, data)
-                }
-            } else {
-                entry.duration = book.duration
-                entry.position = book.position
-            }
-            if let c = book.coverFile, let data = try? Data(contentsOf: folder.appendingPathComponent(c)) {
-                entry.cover = "covers/\(book.id.uuidString)"
-                zip.add(entry.cover!, data)
-            }
-            entries.append(entry)
-        }
-        let manifest = BackupManifest(shelves: settings.shelves, filterWords: settings.filterWords,
-                                      pronunciationRules: settings.pronunciationRules, books: entries)
-        let encoder = JSONEncoder()
-        encoder.dateEncodingStrategy = .iso8601
-        zip.add("lamplight-backup.json", try encoder.encode(manifest))
-        let day = Date().formatted(.iso8601.year().month().day())
-        let url = FileManager.default.temporaryDirectory.appendingPathComponent("Lamplight backup \(day).zip")
-        try zip.finish().write(to: url, options: .atomic)
-        UserDefaults.standard.set(Date(), forKey: "rd.lastBackup")
-        return url
-    }
-
-    /// Merges a backup: adds what's missing, unions shelves and words, newer places win, nothing is deleted.
+    /// Restores an older zip backup (before backups became folders). Merges:
+    /// adds missing ebooks, unions shelves and words, newer places win, nothing is deleted.
     func importBackup(_ url: URL) async {
         let ok = url.startAccessingSecurityScopedResource()
         defer { if ok { url.stopAccessingSecurityScopedResource() } }

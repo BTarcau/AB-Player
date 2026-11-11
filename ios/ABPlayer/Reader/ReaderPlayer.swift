@@ -324,6 +324,39 @@ final class ReaderPlayer: RemoteTarget {
     private static let lookahead: Double = 45
     private static let burstLookahead: Double = 240
 
+    // MARK: Background CPU pacing
+    //
+    // iOS kills a background app that averages over 80% CPU for a minute, and
+    // Kokoro runs flat out, so away from the screen new clips wait until the app
+    // has averaged no more than `bgCPUShare` since the mark (with at most
+    // `bgIdleCredit` seconds of earlier idle time counted towards it).
+    private static let bgCPUShare = 0.5
+    private static let bgIdleCredit = 10.0
+    @ObservationIgnored private var paceWall = Date()
+    @ObservationIgnored private var paceCPU = 0.0
+    @ObservationIgnored private var paceRetry = false
+
+    private static func processCPUSeconds() -> Double {
+        Double(clock_gettime_nsec_np(CLOCK_PROCESS_CPUTIME_ID)) / 1e9
+    }
+
+    /// Seconds to hold off starting a clip; 0 in the foreground.
+    private func paceWait() -> Double {
+        let now = Date(), cpu = Self.processCPUSeconds()
+        guard UIApplication.shared.applicationState != .active else {
+            paceWall = now; paceCPU = cpu
+            return 0
+        }
+        let slack = now.timeIntervalSince(paceWall) - (cpu - paceCPU) / Self.bgCPUShare
+        if slack > Self.bgIdleCredit {
+            // Don't bank more idle time than that, or a long pause could fund a minute flat out.
+            paceWall = now.addingTimeInterval(-Self.bgIdleCredit)
+            paceCPU = cpu
+            return 0
+        }
+        return max(0, -slack)
+    }
+
     private func key(_ c: Int, _ s: Int) -> String { "\(c)-\(s)" }
 
     private func entry(_ c: Int, _ s: Int) -> Entry {
@@ -357,6 +390,16 @@ final class ReaderPlayer: RemoteTarget {
 
     private func pump() {
         while running.count < Self.inFlight, !queue.isEmpty {
+            let wait = paceWait()
+            if wait > 0 {
+                if !paceRetry {
+                    paceRetry = true
+                    DispatchQueue.main.asyncAfter(deadline: .now() + wait) { [weak self] in
+                        MainActor.assumeIsolated { self?.paceRetry = false; self?.pump() }
+                    }
+                }
+                return
+            }
             let job = queue.removeFirst()
             guard cache[job.entry.key] === job.entry else { fail(job.entry, Dropped()); continue }
             let run = (key: job.entry.key, chars: job.entry.chars, sentAt: Date())

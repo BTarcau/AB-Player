@@ -1,72 +1,91 @@
 #!/usr/bin/env bash
-# Sets up the on-device Kokoro voice. Run once (takes about 15–30 minutes, mostly
-# compiling), then build the app in Xcode as usual.
+# Sets up the on-device Kokoro voice. Run once (a few minutes, mostly
+# downloading), then build the app in Xcode as usual.
 #
-#  1. Builds sherpa-onnx v1.13.8 (Apache-2.0, https://github.com/k2-fsa/sherpa-onnx)
-#     for iPhone and the simulator, with ONNX Runtime, into ios/Vendor/.
-#     1.13.8 is the last release with the built-in espeak-ng phonemizer that
-#     turns text into the sounds Kokoro speaks; 2.x removed it.
-#  2. Downloads the Kokoro v1.0 model (Apache-2.0, full precision) and keeps the
-#     English parts (about 380 MB) in ios/KokoroModel/, which is bundled into the
-#     app. The int8 version is a third the size but adds hiss, sounds duller and
-#     was slower on Apple CPUs.
+# Builds the Kokoro v1.0 models for the Neural Engine (Apache-2.0, from
+# https://github.com/mattmireles/kokoro-coreml) into ios/KokoroRuntime/, which
+# is bundled into the app (about 195 MB):
+#  - the 28 English voices the app offers;
+#  - one 15-second model size (the SDK splits longer sentences into pieces);
+#  - no ANE+GPU "hybrid" generator, because Lamplight never uses the GPU (iOS
+#    refuses it in the background).
+# The app compiles the models for the iPhone the first time it loads them
+# (about a minute) and keeps them in Application Support.
 #
-# Needs: Xcode, cmake (brew install cmake), git, curl.
+# Needs: git, uv (brew install uv), node.
 set -euo pipefail
 
 IOS_DIR="$(cd "$(dirname "$0")/.." && pwd)"
-VENDOR="$IOS_DIR/Vendor"
-MODEL="$IOS_DIR/KokoroModel"
+OUT="$IOS_DIR/KokoroRuntime"
 WORK="$IOS_DIR/build/kokoro-setup"
-SHERPA_TAG=v1.13.8
-MODEL_URL=https://github.com/k2-fsa/sherpa-onnx/releases/download/tts-models/kokoro-multi-lang-v1_0.tar.bz2
+# Keep in step with the kokoro-coreml revision in ABPlayer.xcodeproj.
+SDK_COMMIT=b23caa862f0585c2c65187d0fc97e0f8311041dc
+# The Hugging Face revision of the models that SDK commit expects
+# (KokoroHostedModels.revision in that commit).
+HF_REVISION=034f7741bf938fd6b4b9c75c22bc72cd795f908a
+VOICES=af_alloy,af_aoede,af_bella,af_heart,af_jessica,af_kore,af_nicole,af_nova,af_river,af_sarah,af_sky,am_adam,am_echo,am_eric,am_fenrir,am_liam,am_michael,am_onyx,am_puck,am_santa,bf_alice,bf_emma,bf_isabella,bf_lily,bm_daniel,bm_fable,bm_george,bm_lewis
+BUCKETS=15
 
-mkdir -p "$VENDOR" "$MODEL" "$WORK"
+command -v uv >/dev/null || { echo "uv is needed: brew install uv"; exit 1; }
+command -v node >/dev/null || { echo "node is needed: brew install node"; exit 1; }
 
-# ---- 1. sherpa-onnx + ONNX Runtime ----
-if [ ! -d "$VENDOR/sherpa-onnx.xcframework" ] || [ ! -d "$VENDOR/onnxruntime.xcframework" ]; then
-  command -v cmake >/dev/null || { echo "cmake is needed: brew install cmake"; exit 1; }
-  if [ ! -d "$WORK/sherpa-onnx" ]; then
-    git clone --depth 1 --branch "$SHERPA_TAG" https://github.com/k2-fsa/sherpa-onnx.git "$WORK/sherpa-onnx"
-  fi
-  cd "$WORK/sherpa-onnx"
-  # The script downloads ONNX Runtime with wget; use curl when wget isn't installed.
-  command -v wget >/dev/null || sed -i '' 's/wget -c /curl -sSLO /' build-ios.sh
-  echo "Building sherpa-onnx for iOS (this takes a while)…"
-  ./build-ios.sh
+# ---- MisakiSwift, patched ----
+# kokoro-coreml turns text into phonemes with MisakiSwift (Apache-2.0). For words
+# missing from its dictionary it runs a small neural network with MLX, which
+# uses the GPU by default; with the screen locked iOS refuses that, and MLX then
+# aborts the app. The patch runs that network on the CPU. ABPlayer.xcodeproj
+# uses this copy in place of the one kokoro-coreml asks for (same revision).
+MISAKI="$IOS_DIR/Packages/MisakiSwift"
+MISAKI_COMMIT=3a27756a780fc138e328a96e533fb440a3419d5b
+if [ ! -d "$MISAKI/.git" ]; then
+  mkdir -p "$IOS_DIR/Packages"
+  git clone https://github.com/mattmireles/MisakiSwift.git "$MISAKI"
+fi
+git -C "$MISAKI" fetch --quiet origin
+git -C "$MISAKI" checkout --quiet --force "$MISAKI_COMMIT"
+git -C "$MISAKI" apply "$IOS_DIR/Scripts/misaki-cpu-fallback.patch"
+echo "MisakiSwift is in $MISAKI (patched to keep off the GPU)."
 
-  rm -rf "$VENDOR/sherpa-onnx.xcframework" "$VENDOR/onnxruntime.xcframework"
-  cp -R build-ios/sherpa-onnx.xcframework "$VENDOR/"
-  cp -RL build-ios/ios-onnxruntime/onnxruntime.xcframework "$VENDOR/"
-
-  # Let `import SherpaOnnxC` link everything it needs by itself.
-  for mm in "$VENDOR"/sherpa-onnx.xcframework/*/SherpaOnnxC.framework/Modules/module.modulemap; do
-    cat > "$mm" <<'EOF'
-framework module SherpaOnnxC {
-  header "sherpa-onnx/c-api/c-api.h"
-  export *
-  link framework "SherpaOnnxC"
-  link framework "onnxruntime"
-  link "c++"
-}
-EOF
-  done
-  echo "Frameworks are in $VENDOR"
+if [ -f "$OUT/KokoroRuntimeManifest.json" ]; then
+  echo "Kokoro is already set up in $OUT. Delete that folder's contents (keep README.md) to rebuild."
+  exit 0
 fi
 
-# ---- 2. Kokoro model (English voices) ----
-if [ ! -f "$MODEL/model.onnx" ]; then
-  echo "Downloading the Kokoro v1.0 model…"
-  curl -L --fail -o "$WORK/kokoro.tar.bz2" "$MODEL_URL"
-  tar -xjf "$WORK/kokoro.tar.bz2" -C "$WORK"
-  SRC="$WORK/kokoro-multi-lang-v1_0"
-  cp "$SRC/model.onnx" "$SRC/voices.bin" "$SRC/tokens.txt" \
-     "$SRC/lexicon-us-en.txt" "$SRC/lexicon-gb-en.txt" "$MODEL/"
-  cp "$SRC/LICENSE" "$MODEL/LICENSE-kokoro.txt"
-  rm -rf "$MODEL/espeak-ng-data"
-  cp -R "$SRC/espeak-ng-data" "$MODEL/"
-  rm -rf "$SRC" "$WORK/kokoro.tar.bz2"
-  echo "Model is in $MODEL"
+mkdir -p "$WORK"
+SRC="$WORK/kokoro-coreml"
+if [ ! -d "$SRC/.git" ]; then
+  git clone https://github.com/mattmireles/kokoro-coreml.git "$SRC"
 fi
+cd "$SRC"
+git fetch --quiet origin
+git checkout --quiet --force "$SDK_COMMIT"
 
-echo "Kokoro is set up. Build the app in Xcode."
+# Leave the hybrid generator out of the bundle.
+git checkout --quiet -- scripts/sdk_profiles.json
+uv run python -c "
+import json; p = 'scripts/sdk_profiles.json'; d = json.load(open(p))
+d['custom']['hybrid_rows'] = {}; json.dump(d, open(p, 'w'), indent=2)"
+
+echo "Downloading the Kokoro models…"
+uv run python scripts/download_models.py \
+  --repo-id mattmireles/kokoro-coreml --revision "$HF_REVISION" \
+  --sdk-profile custom --sdk-voices "$VOICES" --sdk-buckets "$BUCKETS" \
+  --manifest-out "$WORK/download-manifest.json"
+
+echo "Building the bundle…"
+TMP="$WORK/KokoroRuntime"
+rm -rf "$TMP"
+node scripts/build_sdk_bundle.mjs \
+  --profile custom --voices "$VOICES" --buckets "$BUCKETS" \
+  --compile-models 0 --allow-dirty 1 --output "$TMP" \
+  --repo-id mattmireles/kokoro-coreml --revision "$HF_REVISION" \
+  --download-manifest "$WORK/download-manifest.json"
+node scripts/validate_sdk_bundle.mjs "$TMP"
+git checkout --quiet -- scripts/sdk_profiles.json
+
+rmdir "$TMP/compiled" 2>/dev/null || true
+cp "$SRC/LICENSE" "$TMP/LICENSE-kokoro-coreml.txt"
+find "$OUT" -mindepth 1 ! -name README.md -exec rm -rf {} +
+cp -R "$TMP"/. "$OUT"/
+rm -rf "$TMP"
+echo "Kokoro is set up in $OUT ($(du -sh "$OUT" | cut -f1)). Build the app in Xcode."

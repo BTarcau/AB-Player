@@ -2,7 +2,7 @@
 
 A SwiftUI version of the AB-Player web app, built with AVFoundation. Same idea: each folder of audio files you add is one book, and it remembers where you stopped. Being a real app, it can do a lot that the Home Screen web app couldn't.
 
-Requires iOS 17 or later. No third-party dependencies.
+Requires iOS 18 or later. One third-party dependency: [kokoro-coreml](https://github.com/mattmireles/kokoro-coreml) (Apache-2.0) for the Kokoro voice, which brings MisakiSwift and MLX (Apache-2.0 and MIT).
 
 ## What's new compared with the web app
 
@@ -29,7 +29,7 @@ Requires iOS 17 or later. No third-party dependencies.
 The reader from [Lamplight](https://github.com/Bidpuck/Lamplight) is built in, without Piper:
 
 - **Add** EPUBs and PDFs with **+ › Add EPUB or PDF**, the Files folder, Open in, or a **watched folder** (Settings › Library) whose new books are added each time the app opens. Title, author, series (Calibre or EPUB 3 metadata), subjects and cover are read from the file; chapters come from the EPUB's contents or the PDF's bookmarks (otherwise 8 pages a chapter).
-- **Kokoro runs on the iPhone itself**: the Kokoro v1.0 model (full precision, 28 English voices) on the CPU through [sherpa-onnx](https://github.com/k2-fsa/sherpa-onnx) and ONNX Runtime, with espeak-ng and the model's US/UK lexicons turning text into phonemes. No server and no internet. Running on the CPU rather than the GPU means it keeps making speech while the screen is locked. Apple's **iPhone voice** is there as a fallback.
+- **Kokoro runs on the iPhone itself**: the Kokoro v1.0 model (28 English voices) on the Neural Engine through Core ML ([kokoro-coreml](https://github.com/mattmireles/kokoro-coreml)), with Misaki, Kokoro's own phonemizer, turning text into American or British phonemes. No server and no internet. The Neural Engine keeps making speech while the screen is locked and leaves the CPU almost idle (about 2%), so iOS doesn't stop it in the background; the GPU is never used, because iOS refuses it to background apps. It needs a real iPhone (iOS 18 or later): in the simulator Kokoro shows as unavailable. Apple's **iPhone voice** is there as a fallback.
 - **Reading screen:** the whole chapter with the sentence being read highlighted and read text faded, follow-along scrolling (scroll away and a "Back to where it's reading" pill appears), tap any sentence to read from there, a NOW line, chapter-time scrubber, skip by sentence or paragraph, speed and voice chips, Contents with search inside the book, and an Aa sheet (text size, five fonts, Paper / Dark / Auto, follow along, fade).
 - **Playback** works like Lamplight's player: clips are made in reading order two at a time, 45 s ahead (240 s when the screen locks), it waits once at the start until it can keep going ("Buffering… N s"), learns how fast the voice is on this iPhone (Settings shows the measured speed), trims silence to the "pause between sentences" setting, and adds a beat after dialogue.
 - **Words:** strong-language filter (muted in speech, masked on screen) with your own extra words, and a pronunciation dictionary with preview.
@@ -62,7 +62,7 @@ Kept from the web app: folder-of-folders and CD1/Disc 2/Part 3 grouping, natural
 
 ## Running it
 
-**Once, set up the Kokoro voice** (needs cmake: `brew install cmake`). This builds sherpa-onnx 1.13.8 for iPhone and the simulator into `ios/Vendor/` and puts the model (about 380 MB, bundled into the app) in `ios/KokoroModel/`. Neither is kept in git. It takes 15–30 minutes, mostly compiling:
+**Once, set up the Kokoro voice** (needs uv and node: `brew install uv node`). This downloads the Kokoro models from kokoro-coreml and builds them, with the app's 28 voices, into `ios/KokoroRuntime/` (about 175 MB, bundled into the app, not kept in git). It takes a few minutes, mostly downloading:
 
 ```bash
 ios/Scripts/setup-kokoro.sh
@@ -70,7 +70,7 @@ ios/Scripts/setup-kokoro.sh
 
 Without it the app still builds and runs; it just uses the iPhone voice and says why Kokoro isn't available.
 
-Then open `ios/ABPlayer.xcodeproj` in Xcode (16 or later), pick an iPhone or simulator, and press Run. Use a Release build on a real iPhone to judge Kokoro's speed.
+Then open `ios/ABPlayer.xcodeproj` in Xcode (26 or later; the first build fetches the kokoro-coreml package), pick an iPhone or simulator, and press Run. The first time Kokoro loads on an iPhone, Core ML compiles its models for that phone, which takes about a minute; after that it loads in seconds. If Xcode fails compiling MLX's Metal shaders, run `xcodebuild -downloadComponent MetalToolchain` once.
 
 The app icon is drawn by `ios/Scripts/make-icon.swift` (lamp, light and pages as vector shapes); run it to regenerate `icon-1024.png` after changing it.
 

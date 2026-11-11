@@ -69,7 +69,7 @@ struct ReaderSettingsSections: View {
             Label("Ebooks Read Aloud", systemImage: BookKind.ebookIcon)
         } footer: {
             Text(settings.source == .kokoro
-                 ? (KokoroEngine.unavailableReason ?? "Kokoro runs on this iPhone. Nothing is sent anywhere, it works offline, and it keeps reading ahead while the screen is locked.")
+                 ? (KokoroEngine.unavailableReason ?? "Kokoro runs on this iPhone's Neural Engine. Nothing is sent anywhere, it works offline, and it keeps reading ahead while the screen is locked.")
                  : "Apple's built-in voices. Kokoro sounds more natural.")
             + Text(status.line.isEmpty ? "" : "\n\n" + status.line)
         }

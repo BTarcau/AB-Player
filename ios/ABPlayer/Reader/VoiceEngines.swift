@@ -1,8 +1,9 @@
 @preconcurrency import AVFoundation
 import Foundation
 import Observation
-#if canImport(SherpaOnnxC)
-import SherpaOnnxC
+#if canImport(KokoroTTS)
+import CoreML
+import KokoroTTS
 #endif
 
 /// One spoken sentence, ready to play.
@@ -122,28 +123,6 @@ enum ClipAudio {
         out.frameLength = AVAudioFrameCount(w)
         return out
     }
-
-    /// Removes Kokoro's high-frequency hiss (mostly 9–12 kHz, stronger in the int8
-    /// model) with two cascaded low-pass filters at 8.5 kHz. Speech sits well below.
-    static func removeHiss(_ buf: AVAudioPCMBuffer, cutoff: Double = 8500) -> AVAudioPCMBuffer {
-        guard let x = buf.floatChannelData?[0], buf.frameLength > 0 else { return buf }
-        let n = Int(buf.frameLength)
-        let w0 = 2 * Double.pi * cutoff / buf.format.sampleRate
-        let alpha = sin(w0) / (2 * 0.7071)
-        let a0 = 1 + alpha
-        let b0 = (1 - cos(w0)) / 2 / a0, b1 = (1 - cos(w0)) / a0, b2 = b0
-        let a1 = -2 * cos(w0) / a0, a2 = (1 - alpha) / a0
-        for _ in 0..<2 {
-            var x1 = 0.0, x2 = 0.0, y1 = 0.0, y2 = 0.0
-            for i in 0..<n {
-                let xi = Double(x[i])
-                let yi = b0 * xi + b1 * x1 + b2 * x2 - a1 * y1 - a2 * y2
-                x2 = x1; x1 = xi; y2 = y1; y1 = yi
-                x[i] = Float(yi)
-            }
-        }
-        return buf
-    }
 }
 
 @MainActor @Observable
@@ -155,14 +134,16 @@ final class VoiceStatus {
 
 // MARK: - Kokoro on this iPhone
 
-/// Kokoro v1.0 running on the iPhone's CPU through sherpa-onnx and ONNX Runtime.
-/// The CPU (unlike the GPU) keeps working while the screen is locked, so it can
-/// keep reading ahead in the background. Text becomes phonemes with the
-/// espeak-ng (the model's own phonemizer), in an American or British accent.
+/// Kokoro v1.0 running on the iPhone's Neural Engine through Core ML
+/// (kokoro-coreml). The Neural Engine keeps working while the screen is locked
+/// and leaves the CPU almost idle (about 2%), so iOS lets it read ahead in the
+/// background. The GPU is kept out of it, because iOS refuses GPU work from
+/// background apps. Text becomes phonemes with Misaki, Kokoro's own
+/// phonemizer, in an American or British accent to match the voice.
 final class KokoroEngine: @unchecked Sendable {
     static let shared = KokoroEngine()
 
-    /// The model's English voices, in its speaker order (ids 0–27).
+    /// The English voices in the bundle (built by ios/Scripts/setup-kokoro.sh).
     static let voices = [
         "af_alloy", "af_aoede", "af_bella", "af_heart", "af_jessica", "af_kore", "af_nicole", "af_nova",
         "af_river", "af_sarah", "af_sky", "am_adam", "am_echo", "am_eric", "am_fenrir", "am_liam",
@@ -170,104 +151,105 @@ final class KokoroEngine: @unchecked Sendable {
         "bm_daniel", "bm_fable", "bm_george", "bm_lewis",
     ]
 
-    static var modelDir: URL? { Bundle.main.url(forResource: "KokoroModel", withExtension: nil) }
+    static var bundleDir: URL? { Bundle.main.url(forResource: "KokoroRuntime", withExtension: nil) }
+
+    /// Where Core ML keeps the models it compiled for this iPhone.
+    static var compiledDir: URL {
+        let support = FileManager.default.urls(for: .applicationSupportDirectory, in: .userDomainMask)[0]
+        return support.appendingPathComponent("KokoroCompiled", isDirectory: true)
+    }
+
+    /// True until the models have been compiled once (that first load takes about a minute).
+    static var firstLoad: Bool {
+        ((try? FileManager.default.contentsOfDirectory(atPath: compiledDir.path)) ?? []).isEmpty
+    }
 
     /// Why Kokoro can't run in this build, or nil when it can.
     static var unavailableReason: String? {
-        #if canImport(SherpaOnnxC)
-        guard let dir = modelDir, FileManager.default.fileExists(atPath: dir.appendingPathComponent("model.onnx").path) else {
-            return "The Kokoro voice model isn't in this build. Run ios/Scripts/setup-kokoro.sh, then build again."
+        #if targetEnvironment(simulator)
+        // Misaki runs on MLX, which needs a real GPU and crashes in the simulator.
+        return "The Kokoro voice only runs on a real iPhone, not in the simulator."
+        #elseif canImport(KokoroTTS)
+        guard let dir = bundleDir, FileManager.default.fileExists(atPath: dir.appendingPathComponent("KokoroRuntimeManifest.json").path) else {
+            return "The Kokoro voice models aren't in this build. Run ios/Scripts/setup-kokoro.sh, then build again."
         }
         return nil
         #else
-        return "The Kokoro voice engine isn't in this build. Run ios/Scripts/setup-kokoro.sh, then build again."
+        return "The Kokoro voice engine isn't in this build."
         #endif
     }
 
     private let lock = NSLock()
-    private var accent = ""
-    #if canImport(SherpaOnnxC)
-    private var tts: OpaquePointer?
+    #if canImport(KokoroTTS)
+    private var tts: KokoroTTS?
+    private var loading: Task<KokoroTTS, Error>?
     #endif
 
     var isLoaded: Bool {
-        lock.lock(); defer { lock.unlock() }
-        #if canImport(SherpaOnnxC)
-        return tts != nil
+        #if canImport(KokoroTTS)
+        return lock.withLock { tts != nil }
         #else
         return false
         #endif
     }
 
-    /// Loads the model (a few seconds). British voices use the British lexicon.
-    func prepare(voice: String) throws {
-        lock.lock(); defer { lock.unlock() }
-        try load(british: voice.hasPrefix("b"))
+    /// Loads and warms up the models: a few seconds, or about a minute the first
+    /// time, while Core ML compiles them for this iPhone.
+    func prepare(voice: String) async throws {
+        #if canImport(KokoroTTS)
+        _ = try await engine(voice: voice)
+        #else
+        throw VoiceError.unavailable(Self.unavailableReason ?? "")
+        #endif
     }
 
     /// One sentence of speech. Calls run one at a time.
-    func generate(text: String, voice: String, speed: Double) throws -> AVAudioPCMBuffer {
-        #if canImport(SherpaOnnxC)
-        lock.lock(); defer { lock.unlock() }
-        try load(british: voice.hasPrefix("b"))
-        let sid = Int32(Self.voices.firstIndex(of: voice) ?? 3)
-        guard let audio = SherpaOnnxOfflineTtsGenerate(tts, text, sid, Float(speed)) else { throw VoiceError.noAudio }
-        defer { SherpaOnnxDestroyOfflineTtsGeneratedAudio(audio) }
-        let n = Int(audio.pointee.n)
-        guard n > 0, let samples = audio.pointee.samples,
-              let format = AVAudioFormat(commonFormat: .pcmFormatFloat32, sampleRate: Double(audio.pointee.sample_rate), channels: 1, interleaved: false),
-              let buf = AVAudioPCMBuffer(pcmFormat: format, frameCapacity: AVAudioFrameCount(n)),
-              let dst = buf.floatChannelData?[0] else { throw VoiceError.noAudio }
-        dst.update(from: samples, count: n)
-        buf.frameLength = AVAudioFrameCount(n)
-        return ClipAudio.removeHiss(try ClipAudio.convert(buf))
+    func generate(text: String, voice: String, speed: Double) async throws -> AVAudioPCMBuffer {
+        #if canImport(KokoroTTS)
+        let tts = try await engine(voice: voice)
+        let audio = try await tts.synthesize(text, voice: KokoroVoiceID(voice), options: KokoroSynthesisOptions(speed: Float(speed)))
+        guard !audio.samples.isEmpty else { throw VoiceError.noAudio }
+        return try ClipAudio.convert(try audio.makePCMBuffer())
         #else
         throw VoiceError.unavailable(Self.unavailableReason ?? "")
         #endif
     }
 
-    #if canImport(SherpaOnnxC)
-    /// Creates a sherpa-onnx Kokoro engine. `lang` is the espeak-ng accent.
-    private static func makeTTS(dir: URL, model: URL, lang: String) -> OpaquePointer? {
-        // C strings must stay alive while the engine is created.
-        var owned: [UnsafeMutablePointer<CChar>] = []
-        func c(_ s: String) -> UnsafePointer<CChar> { let p = strdup(s)!; owned.append(p); return UnsafePointer(p) }
-        defer { owned.forEach { free($0) } }
-        var config = SherpaOnnxOfflineTtsConfig()
-        config.model.kokoro.model = c(model.path)
-        config.model.kokoro.voices = c(dir.appendingPathComponent("voices.bin").path)
-        config.model.kokoro.tokens = c(dir.appendingPathComponent("tokens.txt").path)
-        config.model.kokoro.data_dir = c(dir.appendingPathComponent("espeak-ng-data").path)
-        config.model.kokoro.lexicon = c(dir.appendingPathComponent(lang == "en-us" ? "lexicon-us-en.txt" : "lexicon-gb-en.txt").path)
-        config.model.kokoro.lang = c(lang)
-        config.model.kokoro.dict_dir = c("")
-        config.model.kokoro.length_scale = 1
-        config.model.num_threads = Int32(max(2, min(4, ProcessInfo.processInfo.activeProcessorCount - 2)))
-        config.model.provider = c("cpu")
-        config.model.debug = 0
-        config.max_num_sentences = 1
-        config.silence_scale = 0.2
-        return SherpaOnnxCreateOfflineTts(&config)
+    #if canImport(KokoroTTS)
+    private func engine(voice: String) async throws -> KokoroTTS {
+        if let reason = Self.unavailableReason { throw VoiceError.unavailable(reason) }
+        let task: Task<KokoroTTS, Error> = lock.withLock {
+            if let loading { return loading }
+            let task = Task { try await Self.load(voice: voice) }
+            loading = task
+            return task
+        }
+        do {
+            let tts = try await task.value
+            lock.withLock { self.tts = tts }
+            return tts
+        } catch {
+            lock.withLock { loading = nil }
+            throw error
+        }
+    }
+
+    private static func load(voice: String) async throws -> KokoroTTS {
+        guard let dir = bundleDir else { throw VoiceError.unavailable(unavailableReason ?? "") }
+        // Never the ANE+GPU generator: Metal fails in the background.
+        setenv("KOKORO_HYBRID_GENERATOR", "0", 1)
+        var cache = compiledDir
+        try FileManager.default.createDirectory(at: cache, withIntermediateDirectories: true)
+        var values = URLResourceValues()
+        values.isExcludedFromBackup = true
+        try? cache.setResourceValues(values)
+        let policy = KokoroComputePolicy(duration: .cpuOnly, f0ntrain: .cpuAndNeuralEngine,
+                                         decoderPre: .cpuAndNeuralEngine, generator: .cpuAndNeuralEngine)
+        let tts = try await KokoroTTS.load(resources: .directory(dir, compiledModelsDirectory: cache), computePolicy: policy)
+        try await tts.prewarm(text: "The lamp is lit, and the story can begin.", voice: KokoroVoiceID(voice))
+        return tts
     }
     #endif
-
-    private func load(british: Bool) throws {
-        #if canImport(SherpaOnnxC)
-        // espeak-ng voice names: "en-gb" isn't one (it fails to load and every
-        // sentence comes back silent); Received Pronunciation is "en-gb-x-rp".
-        let key = british ? "en-gb-x-rp" : "en-us"
-        if tts != nil && accent == key { return }
-        if let old = tts { SherpaOnnxDestroyOfflineTts(old); tts = nil }
-        guard Self.unavailableReason == nil, let dir = Self.modelDir else {
-            throw VoiceError.unavailable(Self.unavailableReason ?? "")
-        }
-        tts = Self.makeTTS(dir: dir, model: dir.appendingPathComponent("model.onnx"), lang: key)
-        guard tts != nil else { throw VoiceError.unavailable("Kokoro couldn't load its voice model.") }
-        accent = key
-        #else
-        throw VoiceError.unavailable(Self.unavailableReason ?? "")
-        #endif
-    }
 }
 
 // MARK: - Apple's voice on this iPhone

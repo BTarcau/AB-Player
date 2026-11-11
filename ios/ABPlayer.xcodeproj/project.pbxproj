@@ -9,11 +9,12 @@
 /* Begin PBXFileReference section */
 		AB0000000000000000000001 /* ABPlayer.app */ = {isa = PBXFileReference; explicitFileType = wrapper.application; includeInIndex = 0; path = ABPlayer.app; sourceTree = BUILT_PRODUCTS_DIR; };
 		AB0000000000000000000010 /* Info.plist */ = {isa = PBXFileReference; lastKnownFileType = text.plist.xml; path = Info.plist; sourceTree = "<group>"; };
-		AB0000000000000000000011 /* KokoroModel */ = {isa = PBXFileReference; lastKnownFileType = folder; path = KokoroModel; sourceTree = "<group>"; };
+		AB0000000000000000000011 /* KokoroRuntime */ = {isa = PBXFileReference; lastKnownFileType = folder; path = KokoroRuntime; sourceTree = "<group>"; };
 /* End PBXFileReference section */
 
 /* Begin PBXBuildFile section */
-		AB0000000000000000000012 /* KokoroModel in Resources */ = {isa = PBXBuildFile; fileRef = AB0000000000000000000011 /* KokoroModel */; };
+		AB0000000000000000000012 /* KokoroRuntime in Resources */ = {isa = PBXBuildFile; fileRef = AB0000000000000000000011 /* KokoroRuntime */; };
+		AB0000000000000000000015 /* KokoroTTS in Frameworks */ = {isa = PBXBuildFile; productRef = AB0000000000000000000014 /* KokoroTTS */; };
 /* End PBXBuildFile section */
 
 /* Begin PBXFileSystemSynchronizedRootGroup section */
@@ -25,6 +26,7 @@
 			isa = PBXFrameworksBuildPhase;
 			buildActionMask = 2147483647;
 			files = (
+				AB0000000000000000000015 /* KokoroTTS in Frameworks */,
 			);
 			runOnlyForDeploymentPostprocessing = 0;
 		};
@@ -36,7 +38,7 @@
 			children = (
 				AB0000000000000000000002 /* ABPlayer */,
 				AB0000000000000000000010 /* Info.plist */,
-				AB0000000000000000000011 /* KokoroModel */,
+				AB0000000000000000000011 /* KokoroRuntime */,
 				AB0000000000000000000005 /* Products */,
 			);
 			sourceTree = "<group>";
@@ -68,6 +70,9 @@
 				AB0000000000000000000002 /* ABPlayer */,
 			);
 			name = ABPlayer;
+			packageProductDependencies = (
+				AB0000000000000000000014 /* KokoroTTS */,
+			);
 			productName = ABPlayer;
 			productReference = AB0000000000000000000001 /* ABPlayer.app */;
 			productType = "com.apple.product-type.application";
@@ -96,6 +101,10 @@
 			);
 			mainGroup = AB0000000000000000000004;
 			minimizedProjectReferenceProxies = 1;
+			packageReferences = (
+				AB0000000000000000000013 /* XCRemoteSwiftPackageReference "kokoro-coreml" */,
+				AB0000000000000000000016 /* XCLocalSwiftPackageReference "Packages/MisakiSwift" */,
+			);
 			preferredProjectObjectVersion = 77;
 			productRefGroup = AB0000000000000000000005 /* Products */;
 			projectDirPath = "";
@@ -111,7 +120,7 @@
 			isa = PBXResourcesBuildPhase;
 			buildActionMask = 2147483647;
 			files = (
-				AB0000000000000000000012 /* KokoroModel in Resources */,
+				AB0000000000000000000012 /* KokoroRuntime in Resources */,
 			);
 			runOnlyForDeploymentPostprocessing = 0;
 		};
@@ -145,7 +154,7 @@
 					"DEBUG=1",
 					"$(inherited)",
 				);
-				IPHONEOS_DEPLOYMENT_TARGET = 17.0;
+				IPHONEOS_DEPLOYMENT_TARGET = 18.0;
 				MTL_ENABLE_DEBUG_INFO = INCLUDE_SOURCE;
 				ONLY_ACTIVE_ARCH = YES;
 				SDKROOT = iphoneos;
@@ -166,7 +175,7 @@
 				ENABLE_NS_ASSERTIONS = NO;
 				ENABLE_STRICT_OBJC_MSGSEND = YES;
 				ENABLE_USER_SCRIPT_SANDBOXING = YES;
-				IPHONEOS_DEPLOYMENT_TARGET = 17.0;
+				IPHONEOS_DEPLOYMENT_TARGET = 18.0;
 				MTL_ENABLE_DEBUG_INFO = NO;
 				SDKROOT = iphoneos;
 				SWIFT_COMPILATION_MODE = wholemodule;
@@ -183,17 +192,6 @@
 				CURRENT_PROJECT_VERSION = 1;
 				DEVELOPMENT_TEAM = T5C5GL2LW4;
 				ENABLE_PREVIEWS = YES;
-				FRAMEWORK_SEARCH_PATHS = "$(inherited)";
-				"FRAMEWORK_SEARCH_PATHS[sdk=iphoneos*]" = (
-					"$(inherited)",
-					"\"$(PROJECT_DIR)/Vendor/sherpa-onnx.xcframework/ios-arm64\"",
-					"\"$(PROJECT_DIR)/Vendor/onnxruntime.xcframework/ios-arm64\"",
-				);
-				"FRAMEWORK_SEARCH_PATHS[sdk=iphonesimulator*]" = (
-					"$(inherited)",
-					"\"$(PROJECT_DIR)/Vendor/sherpa-onnx.xcframework/ios-arm64_x86_64-simulator\"",
-					"\"$(PROJECT_DIR)/Vendor/onnxruntime.xcframework/ios-arm64_x86_64-simulator\"",
-				);
 				GENERATE_INFOPLIST_FILE = YES;
 				INFOPLIST_FILE = Info.plist;
 				INFOPLIST_KEY_CFBundleDisplayName = Lamplight;
@@ -224,17 +222,6 @@
 				CURRENT_PROJECT_VERSION = 1;
 				DEVELOPMENT_TEAM = T5C5GL2LW4;
 				ENABLE_PREVIEWS = YES;
-				FRAMEWORK_SEARCH_PATHS = "$(inherited)";
-				"FRAMEWORK_SEARCH_PATHS[sdk=iphoneos*]" = (
-					"$(inherited)",
-					"\"$(PROJECT_DIR)/Vendor/sherpa-onnx.xcframework/ios-arm64\"",
-					"\"$(PROJECT_DIR)/Vendor/onnxruntime.xcframework/ios-arm64\"",
-				);
-				"FRAMEWORK_SEARCH_PATHS[sdk=iphonesimulator*]" = (
-					"$(inherited)",
-					"\"$(PROJECT_DIR)/Vendor/sherpa-onnx.xcframework/ios-arm64_x86_64-simulator\"",
-					"\"$(PROJECT_DIR)/Vendor/onnxruntime.xcframework/ios-arm64_x86_64-simulator\"",
-				);
 				GENERATE_INFOPLIST_FILE = YES;
 				INFOPLIST_FILE = Info.plist;
 				INFOPLIST_KEY_CFBundleDisplayName = Lamplight;
@@ -278,6 +265,32 @@
 			defaultConfigurationName = Release;
 		};
 /* End XCConfigurationList section */
+
+/* Begin XCLocalSwiftPackageReference section */
+		AB0000000000000000000016 /* XCLocalSwiftPackageReference "Packages/MisakiSwift" */ = {
+			isa = XCLocalSwiftPackageReference;
+			relativePath = Packages/MisakiSwift;
+		};
+/* End XCLocalSwiftPackageReference section */
+
+/* Begin XCRemoteSwiftPackageReference section */
+		AB0000000000000000000013 /* XCRemoteSwiftPackageReference "kokoro-coreml" */ = {
+			isa = XCRemoteSwiftPackageReference;
+			repositoryURL = "https://github.com/mattmireles/kokoro-coreml";
+			requirement = {
+				kind = revision;
+				revision = b23caa862f0585c2c65187d0fc97e0f8311041dc;
+			};
+		};
+/* End XCRemoteSwiftPackageReference section */
+
+/* Begin XCSwiftPackageProductDependency section */
+		AB0000000000000000000014 /* KokoroTTS */ = {
+			isa = XCSwiftPackageProductDependency;
+			package = AB0000000000000000000013 /* XCRemoteSwiftPackageReference "kokoro-coreml" */;
+			productName = KokoroTTS;
+		};
+/* End XCSwiftPackageProductDependency section */
 	};
 	rootObject = AB000000000000000000000A /* Project object */;
 }

@@ -65,7 +65,7 @@ final class ReaderPlayer: RemoteTarget {
             MainActor.assumeIsolated { if reason == .oldDeviceUnavailable { self?.pause() } }
         }
         center.addObserver(forName: .AVAudioEngineConfigurationChange, object: engine, queue: .main) { [weak self] _ in
-            MainActor.assumeIsolated { if self?.state != .idle { self?.pause() } }
+            MainActor.assumeIsolated { self?.audioConfigurationChanged() }
         }
     }
 
@@ -256,6 +256,7 @@ final class ReaderPlayer: RemoteTarget {
         RemoteRouter.shared.activate(self)
         startEngine()
         speakCurrent(continuing: false)
+        updateNowPlaying()
     }
 
     func pause() {
@@ -288,6 +289,17 @@ final class ReaderPlayer: RemoteTarget {
         stopAudio()
         dropAll()
         if wasPlaying { speakCurrent(continuing: false) }
+    }
+
+    /// iOS stopped the engine because the audio hardware changed. That happens
+    /// on its own, for example just after play when the hardware had gone idle,
+    /// so restart and read the current sentence again rather than pausing.
+    /// (Unplugged headphones pause through the route change instead.)
+    private func audioConfigurationChanged() {
+        guard state != .idle else { return }
+        stopAudio()
+        startEngine()
+        speakCurrent(continuing: false)
     }
 
     private func interruption(_ type: AVAudioSession.InterruptionType?, resume: Bool) {
@@ -412,7 +424,7 @@ final class ReaderPlayer: RemoteTarget {
                     do {
                         if text.trimmingCharacters(in: .whitespaces).isEmpty { return .success(Clip(buffer: ClipAudio.silence(0.05))) }
                         let raw = source == .kokoro
-                            ? try KokoroEngine.shared.generate(text: text, voice: voice, speed: speed)
+                            ? try await KokoroEngine.shared.generate(text: text, voice: voice, speed: speed)
                             : try await DeviceVoice.shared.generate(text: text, voiceID: voice, speed: speed)
                         return .success(Clip(buffer: ClipAudio.compressSilence(raw, gapMs: gap)))
                     } catch { return .failure(error) }
@@ -494,7 +506,7 @@ final class ReaderPlayer: RemoteTarget {
     }()
 
     private var genKey: String {
-        settings.source == .kokoro ? "kokoro on device" : "device"
+        settings.source == .kokoro ? "kokoro neural engine" : "device"
     }
 
     private func genStats() -> GenStats {
@@ -576,7 +588,7 @@ final class ReaderPlayer: RemoteTarget {
 
     // MARK: The clip loop
 
-    /// Loads the Kokoro model before the first sentence (a few seconds, once).
+    /// Loads the Kokoro models before the first sentence (a few seconds, once per launch).
     private func ensureReady() async -> Bool {
         switch settings.source {
         case .kokoro:
@@ -586,11 +598,13 @@ final class ReaderPlayer: RemoteTarget {
             }
             if !KokoroEngine.voices.contains(settings.kokoroVoice) { settings.kokoroVoice = "af_heart" }
             guard !KokoroEngine.shared.isLoaded else { return true }
-            status.line = "Loading the Kokoro voice…"
-            let voice = settings.kokoroVoice
+            let loading = KokoroEngine.firstLoad
+                ? "Getting the Kokoro voice ready. The first time takes about a minute…"
+                : "Loading the Kokoro voice…"
+            status.line = loading
             do {
-                try await Task.detached(priority: .userInitiated) { try KokoroEngine.shared.prepare(voice: voice) }.value
-                if status.line == "Loading the Kokoro voice…" { status.line = "" }
+                try await KokoroEngine.shared.prepare(voice: settings.kokoroVoice)
+                if status.line == loading { status.line = "" }
                 return true
             } catch {
                 status.line = error.localizedDescription
@@ -728,7 +742,7 @@ final class ReaderPlayer: RemoteTarget {
             guard await ensureReady() else { return }
             do {
                 let raw = try await Task.detached {
-                    source == .kokoro ? try KokoroEngine.shared.generate(text: speech, voice: voice, speed: speed)
+                    source == .kokoro ? try await KokoroEngine.shared.generate(text: speech, voice: voice, speed: speed)
                         : try await DeviceVoice.shared.generate(text: speech, voiceID: voice, speed: speed)
                 }.value
                 startEngine()
@@ -772,7 +786,8 @@ final class ReaderPlayer: RemoteTarget {
             MPMediaItemPropertyAlbumTitle: book.title,
             MPMediaItemPropertyPlaybackDuration: info.chapterTotal,
             MPNowPlayingInfoPropertyElapsedPlaybackTime: info.chapterElapsed,
-            MPNowPlayingInfoPropertyPlaybackRate: state == .playing ? 1.0 : 0.0,
+            // Preparing counts as playing, like the spinner on the play button.
+            MPNowPlayingInfoPropertyPlaybackRate: state != .idle ? 1.0 : 0.0,
             MPNowPlayingInfoPropertyMediaType: MPNowPlayingInfoMediaType.audio.rawValue,
         ]
         if let image = library.cover(for: book) { np[MPMediaItemPropertyArtwork] = Self.artwork(image) }

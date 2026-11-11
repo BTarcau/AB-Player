@@ -3,8 +3,10 @@ xcuserdata/
 *.xcuserstate
 .DS_Store
 ios/Vendor/
-ios/KokoroModel/*
-!ios/KokoroModel/README.md
+ios/KokoroModel/
+ios/KokoroRuntime/*
+!ios/KokoroRuntime/README.md
 
 # Personal library data and phone backups from the cleanup scripts
 ios/library-cleanup/
+ios/Packages/

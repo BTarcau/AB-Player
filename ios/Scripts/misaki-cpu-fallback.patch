@@ -1,0 +1,56 @@
+diff --git a/Sources/MisakiSwift/English/FallbackNetwork/EnglishFallbackNetwork.swift b/Sources/MisakiSwift/English/FallbackNetwork/EnglishFallbackNetwork.swift
+index ccbc8b9..76a9e8a 100644
+--- a/Sources/MisakiSwift/English/FallbackNetwork/EnglishFallbackNetwork.swift
++++ b/Sources/MisakiSwift/English/FallbackNetwork/EnglishFallbackNetwork.swift
+@@ -13,13 +13,25 @@ final class EnglishFallbackNetwork {
+ 
+   private let british: Bool
+     
++  /// Lamplight: make the CPU MLX's default everywhere, including the C++ core's
++  /// own default that some operations use internally. Nothing else in the app
++  /// uses MLX. iOS refuses GPU work from background apps, and a failed Metal
++  /// command buffer makes MLX abort the whole app.
++  private static let cpuByDefault: Void = {
++    Device.setDefault(device: .cpu)
++  }()
++
+   init(british: Bool) {    
+-    configuration = EnglishFallbackNetwork.loadConfig(british: british)!
+-    modelWeights = EnglishFallbackNetwork.loadWeights(british: british)!
++    // Lamplight: load and build on the CPU (see callAsFunction).
++    EnglishFallbackNetwork.cpuByDefault
++    let config = EnglishFallbackNetwork.loadConfig(british: british)!
++    let weights = Device.withDefaultDevice(.cpu) { EnglishFallbackNetwork.loadWeights(british: british)! }
++    configuration = config
++    modelWeights = weights
+     
+     self.british = british
+     
+-    self.model = BARTModel(config: configuration, weights: modelWeights)
++    self.model = Device.withDefaultDevice(.cpu) { BARTModel(config: config, weights: weights) }
+     
+     var graphemeDict: [Character: Int] = [:]
+     for (index, grapheme) in configuration.graphemeChars.enumerated() {
+@@ -64,12 +76,16 @@ final class EnglishFallbackNetwork {
+   }
+   
+   func callAsFunction(_ word: MToken) -> (phoneme: String, rating: Int) {
+-    let tokenIds = graphemesToTokens(word.text)
+-    let inputIds = MLXArray(tokenIds).reshaped([1, tokenIds.count])
+-    let generatedIds = model.generate(inputIds: inputIds)
+-    let outputText = tokensToPhonemes(generatedIds.asArray(Int.self))
+-    
+-    return (outputText, 1)
++    // Lamplight: run on the CPU. iOS refuses GPU work from background apps, and
++    // a failed Metal command buffer makes MLX abort the whole app.
++    Device.withDefaultDevice(.cpu) {
++      let tokenIds = graphemesToTokens(word.text)
++      let inputIds = MLXArray(tokenIds).reshaped([1, tokenIds.count])
++      let generatedIds = model.generate(inputIds: inputIds)
++      let outputText = tokensToPhonemes(generatedIds.asArray(Int.self))
++
++      return (outputText, 1)
++    }
+   }
+   
+   private static func loadConfig(british: Bool) -> BARTConfig? {

@@ -25,6 +25,11 @@ struct ABPlayerApp: App {
                 .environment(readerSettings)
                 .environment(VoiceStatus.shared)
                 .task {
+                    // Warm up the Kokoro voice in the background so the first sentence is quick.
+                    if readerSettings.source == .kokoro, KokoroEngine.unavailableReason == nil {
+                        let voice = readerSettings.kokoroVoice
+                        Task.detached(priority: .utility) { try? await KokoroEngine.shared.prepare(voice: voice) }
+                    }
                     player.restoreLast()
                     // If an EPUB/PDF was the last thing read, have it ready in the reader too.
                     let lastText = library.books.filter { $0.isText && $0.lastPlayed != nil }.max { $0.lastPlayed! < $1.lastPlayed! }

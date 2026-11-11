@@ -17,7 +17,7 @@ struct PlayerView: View {
             VStack(spacing: 0) {
                 header
                 Spacer(minLength: 8)
-                CoverView(book: book, corner: 14)
+                CoverView(book: book, corner: 14, fit: true)
                     .shadow(color: .black.opacity(0.25), radius: 16, y: 8)
                     .padding(.horizontal, 28)
                     .frame(maxHeight: 360)

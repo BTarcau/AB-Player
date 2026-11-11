@@ -405,7 +405,7 @@ struct BookRow: View {
 
     var body: some View {
         HStack(spacing: 14) {
-            CoverView(book: book, size: 60)
+            CoverView(book: book, width: 68, corner: 6)
             VStack(alignment: .leading, spacing: 3) {
                 Text(book.title).font(.headline).lineLimit(2)
                 if !book.author.isEmpty {

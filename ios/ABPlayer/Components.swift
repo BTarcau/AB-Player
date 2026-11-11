@@ -5,32 +5,55 @@ import SwiftUI
 struct CoverView: View {
     @Environment(Library.self) private var library
     let book: Book
+    /// Height of the cover; a tall one is narrower and keeps the square's slot.
     var size: CGFloat? = nil
+    /// Width of the cover instead (library rows); a tall one is taller.
+    var width: CGFloat? = nil
     var corner: CGFloat = 8
+    /// Show the whole cover at its own shape (the player). Otherwise it's
+    /// cropped to the usual shape: tall (2:3) for ebooks, square for audiobooks.
+    var fit = false
+
+    /// Width over height of the cropped cover.
+    private var shape: CGFloat { book.isText ? 2.0 / 3.0 : 1 }
 
     var body: some View {
-        Group {
-            if let image = library.cover(for: book) {
-                Image(uiImage: image).resizable().scaledToFill()
-            } else {
-                let hue = Self.hue(book.title)
-                LinearGradient(colors: [Color(hue: hue, saturation: 0.55, brightness: 0.55),
-                                        Color(hue: (hue + 0.11).truncatingRemainder(dividingBy: 1), saturation: 0.6, brightness: 0.32)],
-                               startPoint: .topLeading, endPoint: .bottomTrailing)
-                    .overlay {
-                        GeometryReader { geo in
-                            Text(Self.initials(book.title))
-                                .font(.system(size: geo.size.width * 0.32, weight: .bold, design: .rounded))
-                                .foregroundStyle(.white.opacity(0.9))
-                                .frame(maxWidth: .infinity, maxHeight: .infinity)
-                        }
-                    }
-            }
+        if fit, let image = library.cover(for: book) {
+            Image(uiImage: image).resizable().scaledToFit()
+                .clipShape(RoundedRectangle(cornerRadius: corner, style: .continuous))
+                .frame(maxWidth: size, maxHeight: size)
+                .accessibilityHidden(true)
+        } else {
+            // The box is laid out first and the art drawn inside it, so a cover
+            // of another shape can't report a bigger size and spill over its
+            // neighbours.
+            Color.clear
+                .aspectRatio(shape, contentMode: .fit)
+                .frame(width: width ?? size.map { $0 * shape }, height: width.map { $0 / shape } ?? size)
+                .overlay { art }
+                .clipShape(RoundedRectangle(cornerRadius: corner, style: .continuous))
+                .frame(width: width ?? size)
+                .accessibilityHidden(true)
         }
-        .frame(width: size, height: size)
-        .aspectRatio(1, contentMode: .fit)
-        .clipShape(RoundedRectangle(cornerRadius: corner, style: .continuous))
-        .accessibilityHidden(true)
+    }
+
+    @ViewBuilder private var art: some View {
+        if let image = library.cover(for: book) {
+            Image(uiImage: image).resizable().scaledToFill()
+        } else {
+            let hue = Self.hue(book.title)
+            LinearGradient(colors: [Color(hue: hue, saturation: 0.55, brightness: 0.55),
+                                    Color(hue: (hue + 0.11).truncatingRemainder(dividingBy: 1), saturation: 0.6, brightness: 0.32)],
+                           startPoint: .topLeading, endPoint: .bottomTrailing)
+                .overlay {
+                    GeometryReader { geo in
+                        Text(Self.initials(book.title))
+                            .font(.system(size: geo.size.width * 0.32, weight: .bold, design: .rounded))
+                            .foregroundStyle(.white.opacity(0.9))
+                            .frame(maxWidth: .infinity, maxHeight: .infinity)
+                    }
+                }
+        }
     }
 
     static func hue(_ s: String) -> Double {

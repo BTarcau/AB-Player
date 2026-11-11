@@ -35,18 +35,23 @@ enum EPUBParser {
         p.delegate = opf
         p.parse()
 
-        let toc = loadTOC(zip: zip, opf: opf, opfDir: opfDir)
-
-        // Chapters follow the contents, not the files: one chapter is often split
-        // across several files, and a file with no contents entry continues the
-        // chapter before it.
-        var groups: [(title: String, paragraphs: [String])] = []
+        var files: [(path: String, paragraphs: [String], heading: String?)] = []
         for idref in opf.spine {
             guard let item = opf.manifest[idref] else { continue }
             let path = resolve(opfDir, item.href)
             guard let xml = try? zip.read(path) else { continue }
             let (paragraphs, heading) = extractText(xml)
             guard !paragraphs.isEmpty else { continue }
+            files.append((path, paragraphs, heading))
+        }
+        let toc = titlesByFile(loadTOC(zip: zip, opf: opf, opfDir: opfDir), readingOrder: files.map(\.path),
+                               openings: files.map { Array($0.paragraphs.prefix(8)) })
+
+        // Chapters follow the contents, not the files: one chapter is often split
+        // across several files, and a file with no contents entry continues the
+        // chapter before it.
+        var groups: [(title: String, paragraphs: [String])] = []
+        for (path, paragraphs, heading) in files {
             if let title = toc[path] {
                 groups.append((title, []))
             } else if groups.isEmpty {
@@ -92,13 +97,15 @@ enum EPUBParser {
 
     // MARK: Contents
 
-    /// Resolved file path -> chapter title, from nav.xhtml (EPUB 3) or toc.ncx (EPUB 2).
-    private static func loadTOC(zip: ZipReader, opf: OPFDelegate, opfDir: String) -> [String: String] {
-        var map: [String: String] = [:]
+    /// Contents entries in contents order, one per file (its first), as (resolved path, title),
+    /// from nav.xhtml (EPUB 3) or toc.ncx (EPUB 2).
+    private static func loadTOC(zip: ZipReader, opf: OPFDelegate, opfDir: String) -> [(path: String, title: String)] {
+        var map: [(path: String, title: String)] = []
+        var seen = Set<String>()
         func add(_ entries: [(String, String)], dir: String) {
             for (href, title) in entries where !title.isEmpty {
                 let path = resolve(dir, href)
-                if map[path] == nil { map[path] = title }
+                if seen.insert(path).inserted { map.append((path, title)) }
             }
         }
         if let nav = opf.manifest.values.first(where: { $0.properties.split(separator: " ").contains("nav") }),
@@ -121,6 +128,57 @@ enum EPUBParser {
             }
         }
         return map
+    }
+
+    /// File path -> chapter title. Contents entries normally run in reading order;
+    /// one that points backwards is a mistake in the book (e.g. a chapter linked to
+    /// the printed contents page), so it is dropped, and its title goes to an
+    /// untitled file in the gap where it belongs whose first lines show that title.
+    static func titlesByFile(_ entries: [(path: String, title: String)], readingOrder: [String],
+                             openings: [[String]]) -> [String: String] {
+        let position = Dictionary(readingOrder.enumerated().map { ($1, $0) }, uniquingKeysWith: { a, _ in a })
+        let placed = entries.compactMap { e in position[e.path].map { (e.title, $0) } }
+        guard !placed.isEmpty else { return [:] }
+
+        // The longest run of entries in reading order is kept (ties keep the earlier ones).
+        var length = [Int](repeating: 1, count: placed.count)
+        var prev = [Int](repeating: -1, count: placed.count)
+        for i in placed.indices {
+            for j in 0..<i where placed[j].1 < placed[i].1 && length[j] + 1 > length[i] {
+                length[i] = length[j] + 1
+                prev[i] = j
+            }
+        }
+        var keep = Set<Int>()
+        var i = length.firstIndex(of: length.max()!)!
+        while i >= 0 { keep.insert(i); i = prev[i] }
+
+        var titles: [String: String] = [:]
+        for k in keep { titles[readingOrder[placed[k].1]] = placed[k].0 }
+        var k = 0
+        while k < placed.count {
+            guard !keep.contains(k) else { k += 1; continue }
+            // A run of dropped entries between two kept ones.
+            var end = k
+            while end + 1 < placed.count && !keep.contains(end + 1) { end += 1 }
+            let lo = (0..<k).last { keep.contains($0) }.map { placed[$0].1 } ?? -1
+            let hi = (end + 1 < placed.count) ? placed[end + 1].1 : readingOrder.count
+            for d in k...end {
+                let want = simplified(placed[d].0)
+                if let slot = ((lo + 1)..<hi).first(where: { f in
+                    titles[readingOrder[f]] == nil && openings[f].contains { simplified($0) == want }
+                }) {
+                    titles[readingOrder[slot]] = placed[d].0
+                }
+            }
+            k = end + 1
+        }
+        return titles
+    }
+
+    /// Lowercased letters and digits only, for comparing titles.
+    private static func simplified(_ s: String) -> String {
+        String(s.lowercased().unicodeScalars.filter { CharacterSet.alphanumerics.contains($0) })
     }
 
     // MARK: Chapter text

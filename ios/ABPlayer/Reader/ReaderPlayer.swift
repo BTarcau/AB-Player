@@ -97,6 +97,19 @@ final class ReaderPlayer: RemoteTarget {
         let info = book.text
         ch = min(info?.chapter ?? 0, chapters.count - 1)
         s = min(info?.sentence ?? 0, max(0, chapters[ch].sentences.count - 1))
+        if let info, info.chapterTitles != chapters.map(\.title) || info.chapterChars != chapterChars {
+            // The book was read into chapters differently when the place was saved
+            // (a parser fix); the text is the same, so find the place by characters.
+            (ch, s) = position(atChars: info.charsRead)
+            let (titles, chars, c, i) = (chapters.map(\.title), chapterChars, ch, s)
+            library.mutate(book.id) {
+                $0.text?.chapterTitles = titles
+                $0.text?.chapterChars = chars
+                $0.text?.totalChars = chars.reduce(0, +)
+                $0.text?.chapter = c
+                $0.text?.sentence = i
+            }
+        }
         finished = book.finished
         jumpCount += 1
         updateNowPlaying()
@@ -114,6 +127,19 @@ final class ReaderPlayer: RemoteTarget {
 
     func charsBefore(_ c: Int, _ s: Int) -> Int {
         chapterChars.prefix(c).reduce(0, +) + (charBefore.indices.contains(c) && charBefore[c].indices.contains(s) ? charBefore[c][s] : 0)
+    }
+
+    /// The sentence containing the given character offset into the book.
+    private func position(atChars target: Int) -> (Int, Int) {
+        var left = max(0, target)
+        for (c, n) in chapterChars.enumerated() {
+            if left < n || c == chapters.count - 1 {
+                let i = (charBefore[c].lastIndex { $0 <= left }) ?? 0
+                return (c, min(i, max(0, chapters[c].sentences.count - 1)))
+            }
+            left -= n
+        }
+        return (0, 0)
     }
 
     var secPerCharNow: Double { settings.secPerChar / max(0.1, settings.speed) }

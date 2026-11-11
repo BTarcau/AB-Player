@@ -21,14 +21,19 @@ struct ContentsSheet: View {
 
     var body: some View {
         NavigationStack {
-            List {
-                if query.trimmingCharacters(in: .whitespaces).isEmpty {
-                    chapterList
-                } else {
-                    searchResults
+            // The reader wraps the List, not the rows: inside a List it would make
+            // every chapter one row, and a tap fires all its buttons (the last wins).
+            ScrollViewReader { proxy in
+                List {
+                    if query.trimmingCharacters(in: .whitespaces).isEmpty {
+                        chapterList
+                    } else {
+                        searchResults
+                    }
                 }
+                .listStyle(.plain)
+                .onAppear { proxy.scrollTo(reader.ch, anchor: .center) }
             }
-            .listStyle(.plain)
             .searchable(text: $query, placement: .navigationBarDrawer(displayMode: .always), prompt: "Search this book")
             .onSubmit(of: .search) { if let first = results.first { go(first.chapter, first.sentence) } }
             .task(id: query) {
@@ -42,29 +47,26 @@ struct ContentsSheet: View {
     }
 
     private var chapterList: some View {
-        ScrollViewReader { proxy in
-            ForEach(Array(reader.chapters.enumerated()), id: \.offset) { i, chapter in
-                Button { go(i, 0) } label: {
-                    HStack {
-                        VStack(alignment: .leading, spacing: 2) {
-                            Text(chapter.title).fontWeight(i == reader.ch ? .semibold : .regular)
-                            Text("about \(Fmt.long(Double(chapter.charCount) * reader.secPerCharNow))")
-                                .font(.caption).foregroundStyle(.secondary)
-                        }
-                        Spacer()
-                        if i < reader.ch {
-                            Text("read").font(.caption).foregroundStyle(.secondary)
-                        } else if i == reader.ch {
-                            Text("\(chapter.sentences.isEmpty ? 0 : reader.s * 100 / chapter.sentences.count)%")
-                                .font(.caption.monospacedDigit()).foregroundStyle(Color(palette.brass))
-                        }
+        ForEach(Array(reader.chapters.enumerated()), id: \.offset) { i, chapter in
+            Button { go(i, 0) } label: {
+                HStack {
+                    VStack(alignment: .leading, spacing: 2) {
+                        Text(chapter.title).fontWeight(i == reader.ch ? .semibold : .regular)
+                        Text("about \(Fmt.long(Double(chapter.charCount) * reader.secPerCharNow))")
+                            .font(.caption).foregroundStyle(.secondary)
+                    }
+                    Spacer()
+                    if i < reader.ch {
+                        Text("read").font(.caption).foregroundStyle(.secondary)
+                    } else if i == reader.ch {
+                        Text("\(chapter.sentences.isEmpty ? 0 : reader.s * 100 / chapter.sentences.count)%")
+                            .font(.caption.monospacedDigit()).foregroundStyle(Color(palette.brass))
                     }
                 }
-                .tint(.primary)
-                .listRowBackground(i == reader.ch ? Color(palette.glow) : nil)
-                .id(i)
             }
-            .onAppear { proxy.scrollTo(reader.ch, anchor: .center) }
+            .tint(.primary)
+            .listRowBackground(i == reader.ch ? Color(palette.glow) : nil)
+            .id(i)
         }
     }
 

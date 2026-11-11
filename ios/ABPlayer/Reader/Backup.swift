@@ -8,9 +8,11 @@ import Foundation
 ///                        PDFs, and audiobooks that were copied in (audio,
 ///                        cover, parsed text)
 ///
-/// Linked audiobooks (audio left in a folder elsewhere) have only their record
-/// in the backup. If one isn't in the library when restoring, its record waits
-/// and is applied when that book is linked again.
+/// Books whose files are already somewhere else have only their record in the
+/// backup: linked audiobooks (audio left in a folder elsewhere) and ebooks that
+/// are still in the watched folder. If one isn't in the library when restoring,
+/// its record waits and is applied when the book comes back (linked again, or
+/// added again by the watched folder).
 ///
 /// A folder, not a zip: copied audiobooks can be gigabytes. The book folders
 /// are copied with `copyItem`, which on the phone's APFS storage makes clones
@@ -21,6 +23,9 @@ extension Library {
         var exportedAt = Date()
         var settings: BackupSettings
         var books: [BackupEntry]
+        /// The watched ebook folder, tried again when restoring.
+        var watchBookmark: Data?
+        var watchName: String?
     }
 
     struct BackupEntry: Codable {
@@ -74,10 +79,18 @@ extension Library {
         let booksOut = root.appendingPathComponent("Books", isDirectory: true)
         try fm.createDirectory(at: booksOut, withIntermediateDirectories: true)
 
+        // Ebooks still in the watched folder (often iCloud Drive) aren't copied again.
+        var watched: Set<String> = []
+        if let folder = watchedFolderURL() {
+            let ok = folder.startAccessingSecurityScopedResource()
+            watched = Set(Importer.ebooks(in: folder).map { $0.lastPathComponent.lowercased() })
+            if ok { folder.stopAccessingSecurityScopedResource() }
+        }
         var entries: [BackupEntry] = []
         var copies: [(URL, URL)] = []
         for book in books {
-            let inApp = book.link == nil
+            let inWatched = book.text.map { t in ([t.sourceName] + (t.formerNames ?? [])).contains { watched.contains($0.lowercased()) } } ?? false
+            let inApp = book.link == nil && !inWatched
             if inApp { copies.append((folder(for: book), booksOut.appendingPathComponent(book.id.uuidString, isDirectory: true))) }
             entries.append(BackupEntry(book: book, hasFiles: inApp))
         }
@@ -87,7 +100,9 @@ extension Library {
             for (from, to) in copies { try FileManager.default.copyItem(at: from, to: to) }
         }.value
 
-        let file = BackupFile(settings: Self.currentSettings(), books: entries)
+        let file = BackupFile(settings: Self.currentSettings(), books: entries,
+                              watchBookmark: UserDefaults.standard.data(forKey: "rd.watchBookmark"),
+                              watchName: UserDefaults.standard.string(forKey: "rd.watchName"))
         let encoder = JSONEncoder()
         encoder.dateEncodingStrategy = .iso8601
         encoder.outputFormatting = [.prettyPrinted, .sortedKeys]
@@ -227,9 +242,19 @@ extension Library {
                 }
             }
             save()
+            let waitingEbooks = file.books.filter { !$0.hasFiles && $0.book.isText && match(for: $0.book) == nil }.count
+            let waitingAudio = waiting - waitingEbooks
             var parts = ["\(added) book\(added == 1 ? "" : "s") added", "\(merged) updated"]
-            if waiting > 0 { parts.append("\(waiting) linked audiobook\(waiting == 1 ? "" : "s") will get \(waiting == 1 ? "its" : "their") place back when linked again") }
-            message = "Restored: " + parts.joined(separator: ", ") + "."
+            if waitingAudio > 0 { parts.append("\(waitingAudio) linked audiobook\(waitingAudio == 1 ? "" : "s") will get \(waitingAudio == 1 ? "its" : "their") place back when linked again") }
+            var note = ""
+            if waitingEbooks > 0 {
+                if reconnectWatchedFolder(file) {
+                    note = " Adding \(waitingEbooks) ebook\(waitingEbooks == 1 ? "" : "s") from “\(file.watchName ?? "your watched folder")”…"
+                } else {
+                    note = " Choose your watched folder\(file.watchName.map { " (“\($0)”)" } ?? "") again in Settings to bring back \(waitingEbooks) ebook\(waitingEbooks == 1 ? "" : "s") with their places."
+                }
+            }
+            message = "Restored: " + parts.joined(separator: ", ") + "." + note
         } catch {
             let full = (error as? CocoaError)?.code == .fileWriteOutOfSpace
             message = full ? "Not enough storage space on this \(ThisDevice.name) to restore everything."
@@ -306,7 +331,37 @@ extension Library {
         }
     }
 
-    // MARK: Linked audiobooks waiting to be linked again
+    // MARK: The watched folder
+
+    func watchedFolderURL() -> URL? {
+        guard let data = UserDefaults.standard.data(forKey: "rd.watchBookmark") else { return nil }
+        var stale = false
+        return try? URL(resolvingBookmarkData: data, options: [], relativeTo: nil, bookmarkDataIsStale: &stale)
+    }
+
+    /// After a reinstall the watched folder isn't set. Tries the one saved in
+    /// the backup (iOS may or may not still allow it) and scans it.
+    private func reconnectWatchedFolder(_ file: BackupFile) -> Bool {
+        if watchedFolderURL() == nil, let data = file.watchBookmark {
+            var stale = false
+            guard let url = try? URL(resolvingBookmarkData: data, options: [], relativeTo: nil, bookmarkDataIsStale: &stale) else { return false }
+            let ok = url.startAccessingSecurityScopedResource()
+            let reachable = (try? FileManager.default.contentsOfDirectory(atPath: url.path)) != nil
+            if ok { url.stopAccessingSecurityScopedResource() }
+            guard reachable else { return false }
+            UserDefaults.standard.set(data, forKey: "rd.watchBookmark")
+            UserDefaults.standard.set(file.watchName ?? url.lastPathComponent, forKey: "rd.watchName")
+        }
+        guard watchedFolderURL() != nil else { return false }
+        Task {
+            // The restore's status overlay is still up; scan once it's gone.
+            while importStatus != nil { try? await Task.sleep(for: .milliseconds(200)) }
+            await scanWatchedFolder(announce: false)
+        }
+        return true
+    }
+
+    // MARK: Books waiting to come back (linked audiobooks, watched-folder ebooks)
 
     private var pendingRestoreURL: URL { booksDir.deletingLastPathComponent().appendingPathComponent("restore-pending.json") }
 
@@ -321,16 +376,24 @@ extension Library {
 
     private func addPendingRestore(_ book: Book) {
         var list = pendingRestores()
-        list.removeAll { $0.id == book.id || ($0.title == book.title && abs($0.duration - book.duration) < 2) }
+        list.removeAll { $0.id == book.id || (!book.isText && !$0.isText && $0.title == book.title && abs($0.duration - book.duration) < 2) }
         list.append(book)
         setPendingRestores(list)
     }
 
-    /// A newly added audiobook picks up the place, bookmarks and shelves a
-    /// restored backup had for it.
+    /// A newly added book picks up the place, bookmarks and shelves a restored
+    /// backup had for it.
     func applyPendingRestore(to book: Book) {
         var list = pendingRestores()
-        guard let i = list.firstIndex(where: { !$0.isText && $0.title == book.title && abs($0.duration - book.duration) < 2 }) else { return }
+        guard !list.isEmpty else { return }
+        let i: Int?
+        if let t = book.text {
+            let names = Set(([t.sourceName] + (t.formerNames ?? [])).map { $0.lowercased() })
+            i = list.firstIndex { p in (p.text.map { [$0.sourceName] + ($0.formerNames ?? []) } ?? []).contains { names.contains($0.lowercased()) } }
+        } else {
+            i = list.firstIndex { !$0.isText && $0.title == book.title && abs($0.duration - book.duration) < 2 }
+        }
+        guard let i else { return }
         mergeRecord(list.remove(at: i), into: book.id)
         setPendingRestores(list)
     }

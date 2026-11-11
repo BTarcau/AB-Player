@@ -5,10 +5,24 @@ extension Importer {
     static let ebookExtensions: Set<String> = ["epub", "pdf"]
     static func isEbook(_ url: URL) -> Bool { ebookExtensions.contains(url.pathExtension.lowercased()) }
 
-    /// Every EPUB and PDF in a folder and its subfolders.
+    /// Every EPUB and PDF in a folder and its subfolders, including ones iCloud
+    /// hasn't downloaded yet: those can show up as hidden placeholders
+    /// (".Name.epub.icloud"), returned here under their real name.
     static func ebooks(in folder: URL) -> [URL] {
-        guard let e = FileManager.default.enumerator(at: folder, includingPropertiesForKeys: nil, options: [.skipsHiddenFiles]) else { return [] }
-        return e.compactMap { $0 as? URL }.filter(isEbook).sorted { naturalLess($0.lastPathComponent, $1.lastPathComponent) }
+        guard let e = FileManager.default.enumerator(at: folder, includingPropertiesForKeys: [.isDirectoryKey], options: [.skipsPackageDescendants]) else { return [] }
+        var found: [URL] = []
+        for case let url as URL in e {
+            let name = url.lastPathComponent
+            if name.hasPrefix(".") {
+                if (try? url.resourceValues(forKeys: [.isDirectoryKey]).isDirectory) == true { e.skipDescendants(); continue }
+                guard name.hasSuffix(".icloud") else { continue }
+                let real = url.deletingLastPathComponent().appendingPathComponent(String(name.dropFirst().dropLast(".icloud".count)))
+                if isEbook(real) { found.append(real) }
+            } else if isEbook(url) {
+                found.append(url)
+            }
+        }
+        return Array(Set(found)).sorted { naturalLess($0.lastPathComponent, $1.lastPathComponent) }
     }
 }
 
@@ -96,6 +110,7 @@ extension Library {
         books.append(book)
         reloadCover(book)
         save()
+        applyPendingRestore(to: book)
         return .added(book)
     }
 
@@ -165,6 +180,8 @@ extension Library {
         var added = 0
         for (i, file) in new.enumerated() {
             importStatus = "Adding \(file.lastPathComponent)…\n\(i + 1) of \(new.count)"
+            // Downloads it first if it's only in iCloud.
+            guard await Importer.ensureLocal(file) else { continue }
             if case .added = try? await importEbook(file, suggestShelves: false) { added += 1 }
         }
         message = "Added \(added) new book\(added == 1 ? "" : "s")."

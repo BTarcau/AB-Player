@@ -180,7 +180,7 @@ struct ReaderSettingsSections: View {
         } header: {
             Text("Back up and sync")
         } footer: {
-            Text("Choose a folder in iCloud Drive once and every backup is saved there, then uploaded by iOS; restore it after reinstalling or on another device. A backup holds the ebooks and audiobooks stored in the app, with their audio. Audiobooks linked from another folder aren't copied; their place, bookmarks and shelves come back when you link them again.")
+            Text("Choose a folder in iCloud Drive once and every backup is saved there, then uploaded by iOS; restore it after reinstalling or on another device. A backup holds the ebooks and audiobooks stored in the app, with their audio. Books already in another folder aren't copied again: linked audiobooks, and ebooks still in the watched folder. Their place, bookmarks and shelves come back when they're linked or added again.")
         }
     }
 

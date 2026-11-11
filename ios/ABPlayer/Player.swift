@@ -226,7 +226,7 @@ final class Player: RemoteTarget {
         }
         Task {
             guard await AudioFilter.authorize() else {
-                library.message = "Muting needs speech recognition. Allow it in the iPhone's Settings › Lamplight."
+                library.message = "Muting needs speech recognition. Allow it in the \(ThisDevice.name)'s Settings › Lamplight."
                 return
             }
             library.mutate(id) { $0.muteLanguage = true }

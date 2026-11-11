@@ -271,7 +271,7 @@ final class Library {
         }
         if let failure {
             let full = (failure as? CocoaError)?.code == .fileWriteOutOfSpace
-            message = full ? "Not enough storage space on this iPhone for that book."
+            message = full ? "Not enough storage space on this \(ThisDevice.name) for that book."
                 : "Import failed: \(failure.localizedDescription)"
         } else if added.count == 1 {
             message = "Added “\(added[0].title)”"

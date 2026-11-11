@@ -25,6 +25,7 @@ struct LibraryView: View {
     @Environment(Player.self) private var player
     @Environment(ReaderPlayer.self) private var reader
     @Environment(ReaderSettings.self) private var readerSettings
+    @Environment(\.horizontalSizeClass) private var sizeClass
 
     @State private var search = ""
     @AppStorage("libraryShelf") private var filter: LibraryFilter = "all"
@@ -154,7 +155,7 @@ struct LibraryView: View {
                 }
             }
         }
-        .confirmationDialog("Delete “\(confirmDelete?.title ?? "")” from this iPhone?",
+        .confirmationDialog("Delete “\(confirmDelete?.title ?? "")” from this \(ThisDevice.name)?",
                             isPresented: Binding(get: { confirmDelete != nil }, set: { if !$0 { confirmDelete = nil } }),
                             titleVisibility: .visible) {
             Button("Delete Book", role: .destructive) {
@@ -179,6 +180,8 @@ struct LibraryView: View {
                 Button("Add an Ebook", systemImage: BookKind.ebookIcon) { pick(.ebooks) }.buttonStyle(.borderedProminent)
                 Button("Other ways to add books") { showHowTo = true }
             }
+        } else if sizeClass == .regular {
+            grid
         } else {
             List {
                 Section {
@@ -216,6 +219,55 @@ struct LibraryView: View {
             }
             .listStyle(.insetGrouped)
             .searchable(text: $search, prompt: "Titles, authors, narrators, series")
+        }
+    }
+
+    /// iPad (and other wide windows): covers on a shelf instead of a list.
+    private var grid: some View {
+        ScrollView {
+            VStack(alignment: .leading, spacing: 28) {
+                shelfPills
+                ForEach(groups) { group in
+                    switch group {
+                    case .books(let list):
+                        tiles(list, inSeries: false)
+                    case .series(let name, let list):
+                        VStack(alignment: .leading, spacing: 12) {
+                            let done = list.filter(\.finished).count
+                            HStack(alignment: .firstTextBaseline) {
+                                Text(name).font(.title3.weight(.bold))
+                                Spacer()
+                                Text("\(list.count) books" + (done > 0 ? " · \(done) finished" : ""))
+                                    .font(.subheadline).foregroundStyle(.secondary)
+                            }
+                            tiles(list, inSeries: true)
+                        }
+                    }
+                }
+                if visibleBooks.isEmpty {
+                    Text(!search.isEmpty ? "No books match “\(search)”."
+                         : filter.hasPrefix("shelf:") ? "Nothing on this shelf yet. Long-press a book and choose Shelves to add it." : "No books here.")
+                        .foregroundStyle(.secondary)
+                        .frame(maxWidth: .infinity).padding(.top, 24)
+                } else {
+                    StorageFooter().foregroundStyle(.secondary)
+                }
+            }
+            .padding(.horizontal, 24).padding(.bottom, 24)
+        }
+        .background(Color(.systemGroupedBackground))
+        .searchable(text: $search, prompt: "Titles, authors, narrators, series")
+    }
+
+    private func tiles(_ list: [Book], inSeries: Bool) -> some View {
+        LazyVGrid(columns: [GridItem(.adaptive(minimum: 150, maximum: 190), spacing: 24, alignment: .top)],
+                  alignment: .leading, spacing: 28) {
+            ForEach(list) { book in
+                BookTile(book: book, isCurrent: player.bookID == book.id || reader.bookID == book.id, inSeries: inSeries)
+                    .contentShape(Rectangle())
+                    .onTapGesture { open(book) }
+                    .contextMenu { menu(for: book) }
+            }
         }
     }
 
@@ -330,7 +382,7 @@ struct LibraryView: View {
             Button("Mark as Finished", systemImage: "checkmark.circle") { markFinished(book) }
         }
         Divider()
-        Button("Delete from iPhone", systemImage: "trash", role: .destructive) { confirmDelete = book }
+        Button("Delete from \(ThisDevice.name)", systemImage: "trash", role: .destructive) { confirmDelete = book }
     }
 
     private func open(_ book: Book) {
@@ -442,6 +494,53 @@ struct BookRow: View {
         let n = book.seriesIndex.map { $0.rounded() == $0 ? String(Int($0)) : String($0) }
         if inSeries { return [n.map { "#" + $0 } ?? "Series"] }
         return [book.series + (n.map { " #" + $0 } ?? "")]
+    }
+}
+
+/// A book in the iPad grid: its cover standing on the shelf (tall for ebooks,
+/// square for audiobooks), then title, author and progress.
+struct BookTile: View {
+    let book: Book
+    let isCurrent: Bool
+    var inSeries = false
+
+    var body: some View {
+        VStack(alignment: .leading, spacing: 6) {
+            // Every tile reserves a tall cover's height, so the titles line up.
+            Color.clear
+                .aspectRatio(2.0 / 3.0, contentMode: .fit)
+                .overlay(alignment: .bottom) {
+                    CoverView(book: book, corner: 8)
+                        .shadow(color: .black.opacity(0.18), radius: 6, y: 3)
+                        .overlay(alignment: .topTrailing) {
+                            if book.finished {
+                                Image(systemName: "checkmark.circle.fill")
+                                    .font(.title3).foregroundStyle(.white, .green).padding(6)
+                            }
+                        }
+                }
+            HStack(spacing: 4) {
+                if isCurrent { Image(systemName: "speaker.wave.2.fill").foregroundStyle(.tint).font(.caption) }
+                Text(book.title).font(.subheadline.weight(.semibold)).lineLimit(2)
+            }
+            if let detail = detail {
+                Text(detail).font(.caption).foregroundStyle(.secondary).lineLimit(1)
+            }
+            HStack(spacing: 6) {
+                Image(systemName: BookKind.icon(book)).foregroundStyle(.tint).accessibilityHidden(true)
+                Text(bookSubtitle(book)).lineLimit(2)
+            }
+            .font(.caption2).foregroundStyle(.secondary)
+            ProgressView(value: book.progress)
+                .tint(book.finished ? .green : .accentColor)
+                .opacity(book.status == .notStarted ? 0 : 1)
+        }
+        .accessibilityElement(children: .combine)
+    }
+
+    private var detail: String? {
+        if inSeries, let n = book.seriesIndex { return "#\(n.rounded() == n ? String(Int(n)) : String(n))" + (book.author.isEmpty ? "" : " · \(book.author)") }
+        return book.author.isEmpty ? nil : book.author
     }
 }
 

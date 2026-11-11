@@ -8,7 +8,7 @@ enum VoiceSource: String, CaseIterable, Identifiable {
     /// Apple's built-in voices.
     case device
     var id: String { rawValue }
-    var label: String { self == .kokoro ? "Kokoro" : "iPhone voice" }
+    var label: String { self == .kokoro ? "Kokoro" : "\(ThisDevice.name) voice" }
 }
 
 enum SkipUnit: String, CaseIterable, Identifiable {

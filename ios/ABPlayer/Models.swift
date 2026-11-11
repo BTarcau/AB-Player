@@ -231,3 +231,18 @@ enum Fmt {
         return text + "×"
     }
 }
+
+/// "iPad" or "iPhone", for text like "Delete from this iPhone".
+enum ThisDevice {
+    static let name: String = {
+        var id = ProcessInfo.processInfo.environment["SIMULATOR_MODEL_IDENTIFIER"] ?? ""
+        if id.isEmpty {
+            var size = 0
+            sysctlbyname("hw.machine", nil, &size, nil, 0)
+            var buf = [CChar](repeating: 0, count: max(1, size))
+            sysctlbyname("hw.machine", &buf, &size, nil, 0)
+            id = String(cString: buf)
+        }
+        return id.hasPrefix("iPad") ? "iPad" : "iPhone"
+    }()
+}

@@ -64,7 +64,7 @@ struct HowToAddView: View {
                 Text("MP3, M4A, M4B, AAC, WAV, FLAC, AIFF and CAF. DRM-protected Audible (AAX) and Ogg files can't be played.")
             }
             Section {
-                Text("**Add an Ebook** copies EPUB or PDF files in. Their text is read aloud by the natural voice (Kokoro), on this iPhone.")
+                Text("**Add an Ebook** copies EPUB or PDF files in. Their text is read aloud by the natural voice (Kokoro), on this \(ThisDevice.name).")
                 Text("**Watch a Folder for Ebooks** adds every new EPUB and PDF in a folder (and its subfolders) each time Lamplight opens.")
                 Text("Chapters come from the EPUB's contents or the PDF's bookmarks. Title, author, series and cover come from the file.")
             } header: {
@@ -73,7 +73,7 @@ struct HowToAddView: View {
                 Text("DRM-protected EPUBs (from most stores) and scanned PDFs (pictures of pages) can't be read.")
             }
             Section("Either kind") {
-                Text("Copy audiobook folders, EPUBs or PDFs into **Files › On My iPhone › Lamplight**. They're added the next time you open Lamplight, and the copies there are removed. With a Mac, you can drag them onto Lamplight in Finder (under **Files**).")
+                Text("Copy audiobook folders, EPUBs or PDFs into **Files › On My \(ThisDevice.name) › Lamplight**. They're added the next time you open Lamplight, and the copies there are removed. With a Mac, you can drag them onto Lamplight in Finder (under **Files**).")
                 Text("Share a file from another app and choose **Lamplight**, or use **Open in…**.")
                 Text("Title, author and narrator can be changed any time with **Edit Details**.")
             }

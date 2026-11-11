@@ -250,7 +250,7 @@ struct VoiceSheet: View {
                 } footer: {
                     VStack(alignment: .leading, spacing: 6) {
                         if settings.source == .device {
-                            Text("Better voices can be downloaded in the iPhone's Settings › Accessibility › Spoken Content › Voices.")
+                            Text("Better voices can be downloaded in the \(ThisDevice.name)'s Settings › Accessibility › Spoken Content › Voices.")
                         }
                         if !status.line.isEmpty { Text(status.line) }
                     }

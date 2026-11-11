@@ -168,7 +168,7 @@ final class KokoroEngine: @unchecked Sendable {
     static var unavailableReason: String? {
         #if targetEnvironment(simulator)
         // Misaki runs on MLX, which needs a real GPU and crashes in the simulator.
-        return "The Kokoro voice only runs on a real iPhone, not in the simulator."
+        return "The Kokoro voice only runs on a real iPhone or iPad, not in the simulator."
         #elseif canImport(KokoroTTS)
         guard let dir = bundleDir, FileManager.default.fileExists(atPath: dir.appendingPathComponent("KokoroRuntimeManifest.json").path) else {
             return "The Kokoro voice models aren't in this build. Run ios/Scripts/setup-kokoro.sh, then build again."

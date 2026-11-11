@@ -56,6 +56,7 @@ struct ReaderView: View {
                     .padding(.bottom, 230)
                 }
                 PlayerCard(palette: p, showVoice: $showVoice)
+                    .frame(maxWidth: ReadingTextView.measure + 40)
             } else if reader.isLoading {
                 ProgressView("Opening…").tint(Color(p.ink)).foregroundStyle(Color(p.ink))
             }
@@ -222,6 +223,21 @@ private struct PlayerCard: View {
 
 // MARK: - Chapter text
 
+/// Keeps lines at a comfortable length on wide screens (iPad, landscape) by
+/// widening the side margins; on an iPhone they stay at 20 points.
+final class ReadingTextView: UITextView {
+    static let measure: CGFloat = 680
+
+    override func layoutSubviews() {
+        let side = max(20, ((bounds.width - Self.measure) / 2).rounded())
+        if textContainerInset.left != side {
+            textContainerInset.left = side
+            textContainerInset.right = side
+        }
+        super.layoutSubviews()
+    }
+}
+
 /// The chapter in a UITextView: sentences as ranges that can be highlighted,
 /// faded, tapped and scrolled to without re-laying out the whole chapter.
 struct ChapterTextView: UIViewRepresentable {
@@ -246,7 +262,7 @@ struct ChapterTextView: UIViewRepresentable {
     func makeCoordinator() -> Coordinator { Coordinator() }
 
     func makeUIView(context: Context) -> UITextView {
-        let tv = UITextView(usingTextLayoutManager: false)
+        let tv = ReadingTextView(usingTextLayoutManager: false)
         tv.isEditable = false
         tv.isSelectable = false
         tv.textContainerInset = UIEdgeInsets(top: 22, left: 20, bottom: 230, right: 20)

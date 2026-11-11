@@ -213,7 +213,7 @@ struct MuteMenu: View {
             }
             // Menus don't show section footers, so the explanation is a disabled item.
             Button(on && !player.filter.status.isEmpty ? player.filter.status
-                   : "Listens a few minutes ahead on this iPhone and mutes words on your filter list. Nothing is sent anywhere.") {}
+                   : "Listens a few minutes ahead on this \(ThisDevice.name) and mutes words on your filter list. Nothing is sent anywhere.") {}
                 .disabled(true)
         } label: {
             Image(systemName: on ? "speaker.slash.fill" : "speaker.slash")

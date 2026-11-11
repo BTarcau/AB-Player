@@ -13,7 +13,7 @@ struct ImportGroup {
 enum ImportError: LocalizedError {
     case noPlayableAudio
     var errorDescription: String? {
-        "None of the files could be played. iPhone supports MP3, M4A/M4B, AAC, WAV, FLAC and AIFF."
+        "None of the files could be played. Lamplight can play MP3, M4A/M4B, AAC, WAV, FLAC and AIFF."
     }
 }
 

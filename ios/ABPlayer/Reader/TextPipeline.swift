@@ -58,6 +58,10 @@ enum TextPipeline {
     // Abbreviations and initials ("Mr.", "C. S. Lewis") aren't sentence ends.
     private static let abbrRE = regex(#"\b(Mr|Mrs|Ms|Dr|St|Mt|Prof|Rev|Gen|Col|Capt|Lt|Sgt|Sr|Jr|vs|etc|Ph\.D|i\.e|e\.g)\."#)
     private static let initialRE = regex(#"\b([A-Z])\.(?=\s*[A-Z]\.|\s+[A-Z]\b)"#)
+    // ". . ." is one pause, not three sentence ends: before a capital it still
+    // ends the sentence ("..."), otherwise it becomes "…", which doesn't.
+    private static let spacedEllipsisBeforeCapitalRE = regex(#"\.(?:\s\.){2,}(?=\s+["'“‘]?[A-Z])"#)
+    private static let spacedEllipsisRE = regex(#"\.(?:\s\.){2,}"#)
     private static let sentenceRE = regex(#"[^.!?]+[.!?]+[)\]'"’”]*(?:\s+|$)|[^.!?]+$"#)
 
     static let dialogueTagVerbs = "said|asked|replied|answered|cried|shouted|whispered|muttered|exclaimed|continued|added|began|called|retorted|murmured|sighed|snapped|gasped|sobbed|roared|growled|chuckled|laughed|wondered|declared|announced|remarked|grumbled|protested|went on"
@@ -77,6 +81,8 @@ enum TextPipeline {
         var cleaned = text.replacingOccurrences(of: #"\s+"#, with: " ", options: .regularExpression)
             .trimmingCharacters(in: .whitespaces)
         guard !cleaned.isEmpty else { return [] }
+        cleaned = replace(cleaned, spacedEllipsisBeforeCapitalRE, "...")
+        cleaned = replace(cleaned, spacedEllipsisRE, "…")
         cleaned = replace(cleaned, abbrRE, "$1\u{1}")
         cleaned = replace(cleaned, initialRE, "$1\u{1}")
         // ? -> \u{2}, ! -> \u{3} when a speech tag follows

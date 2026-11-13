@@ -30,7 +30,7 @@ extension Library {
     // MARK: Parsed text
 
     /// Bump the version when parsing changes, so books are read again from their files.
-    nonisolated static let textCacheName = "text-2.json"
+    nonisolated static let textCacheName = "text-3.json"
     func textCacheURL(_ book: Book) -> URL { folder(for: book).appendingPathComponent(Self.textCacheName) }
 
     /// The book's chapters and sentences, from the cache or parsed from the file again.
@@ -45,7 +45,9 @@ extension Library {
             var parsed = try Self.parseEbook(at: file, format: info.format)
             parsed.cover = nil
             try? JSONEncoder().encode(parsed).write(to: cache, options: .atomic)
-            try? FileManager.default.removeItem(at: cache.deletingLastPathComponent().appendingPathComponent("text.json"))
+            for old in ["text.json", "text-2.json"] {
+                try? FileManager.default.removeItem(at: cache.deletingLastPathComponent().appendingPathComponent(old))
+            }
             return parsed
         }.value
     }

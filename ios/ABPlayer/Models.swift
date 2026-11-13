@@ -78,7 +78,19 @@ struct Book: Codable, Hashable, Identifiable {
     var speed: Double = 1
     var createdAt = Date()
     var lastPlayed: Date?
-    var finished = false
+    var finished = false {
+        // However a book gets finished (the end of the last track, the last
+        // sentence, Mark as Read, a restored backup), it counts as read.
+        didSet { if finished, !oldValue, readAt == nil { readAt = Date() } }
+    }
+    /// When the book was first finished. Starting it over keeps this, so a book
+    /// you're reading again still shows as read; only Mark as Unread clears it.
+    var readAt: Date?
+    var hasBeenRead: Bool { finished || readAt != nil }
+    /// Draw a title cover instead of the cover image (true), keep the image
+    /// (false), or let the app decide: a PDF whose "cover" is just a page of
+    /// text gets a title cover (nil).
+    var titleCover: Bool?
     var bookmarks: [Bookmark] = []
     /// Audiobooks: mute strong language, found by listening ahead on the phone.
     var muteLanguage = false
@@ -196,6 +208,9 @@ struct Book: Codable, Hashable, Identifiable {
         createdAt = try c.decodeIfPresent(Date.self, forKey: .createdAt) ?? Date()
         lastPlayed = try c.decodeIfPresent(Date.self, forKey: .lastPlayed)
         finished = try c.decodeIfPresent(Bool.self, forKey: .finished) ?? false
+        // Books finished before this was kept count as read from when last played.
+        readAt = try c.decodeIfPresent(Date.self, forKey: .readAt) ?? (finished ? lastPlayed ?? createdAt : nil)
+        titleCover = try c.decodeIfPresent(Bool.self, forKey: .titleCover)
         bookmarks = try c.decodeIfPresent([Bookmark].self, forKey: .bookmarks) ?? []
         muteLanguage = try c.decodeIfPresent(Bool.self, forKey: .muteLanguage) ?? false
         if chapters.isEmpty && text == nil {

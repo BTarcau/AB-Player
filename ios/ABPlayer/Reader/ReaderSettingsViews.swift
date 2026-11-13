@@ -105,7 +105,7 @@ struct ReaderSettingsSections: View {
         @Bindable var settings = settings
         Section {
             Button { present.showShelves = true } label: { LabeledContent("Shelves", value: "\(settings.shelves.count)") }.tint(.primary)
-            Toggle("Group books by series", isOn: $settings.groupSeries)
+            Toggle("Group books by series and author", isOn: $settings.groupSeries)
             if let name = library.watchedFolderName {
                 LabeledContent("Watched folder", value: name)
                 Text(library.watchedLastScan.map { "Last checked " + $0.formatted(date: .abbreviated, time: .shortened) } ?? "Not checked yet")

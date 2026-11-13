@@ -2,6 +2,11 @@
 // vector shapes and writes a 1024×1024 PNG with no transparency.
 //
 //   swift ios/Scripts/make-icon.swift ios/ABPlayer/Assets.xcassets/AppIcon.appiconset/icon-1024.png
+//
+// With --mark it draws only the lamp, its light and the book on a transparent
+// background, cropped to the drawing (the library title's mark):
+//
+//   swift ios/Scripts/make-icon.swift --mark ios/ABPlayer/Assets.xcassets/LamplightMark.imageset/mark.png
 
 import CoreGraphics
 import Foundation
@@ -9,10 +14,12 @@ import ImageIO
 import UniformTypeIdentifiers
 
 let size = 1024
-let out = CommandLine.arguments.count > 1 ? CommandLine.arguments[1] : "icon-1024.png"
+let args = Array(CommandLine.arguments.dropFirst())
+let markOnly = args.contains("--mark")
+let out = args.first { $0 != "--mark" } ?? (markOnly ? "mark.png" : "icon-1024.png")
 let space = CGColorSpace(name: CGColorSpace.sRGB)!
 let ctx = CGContext(data: nil, width: size, height: size, bitsPerComponent: 8, bytesPerRow: 0, space: space,
-                    bitmapInfo: CGImageAlphaInfo.noneSkipLast.rawValue)!
+                    bitmapInfo: (markOnly ? CGImageAlphaInfo.premultipliedLast : CGImageAlphaInfo.noneSkipLast).rawValue)!
 // Work in a top-left origin, like the original artwork.
 ctx.translateBy(x: 0, y: CGFloat(size))
 ctx.scaleBy(x: 1, y: -1)
@@ -26,11 +33,13 @@ func gradient(_ stops: [(CGFloat, CGColor)]) -> CGGradient {
 }
 
 // Paper background, a touch warmer where the light falls.
-ctx.setFillColor(rgb(0xEAE3D3))
-ctx.fill(CGRect(x: 0, y: 0, width: size, height: size))
-ctx.drawRadialGradient(gradient([(0, rgb(0xF6EDCF, 1)), (1, rgb(0xEAE3D3, 0))]),
-                       startCenter: CGPoint(x: 512, y: 620), startRadius: 0,
-                       endCenter: CGPoint(x: 512, y: 620), endRadius: 470, options: [])
+if !markOnly {
+    ctx.setFillColor(rgb(0xEAE3D3))
+    ctx.fill(CGRect(x: 0, y: 0, width: size, height: size))
+    ctx.drawRadialGradient(gradient([(0, rgb(0xF6EDCF, 1)), (1, rgb(0xEAE3D3, 0))]),
+                           startCenter: CGPoint(x: 512, y: 620), startRadius: 0,
+                           endCenter: CGPoint(x: 512, y: 620), endRadius: 470, options: [])
+}
 
 // The beam: a soft-edged cone from the shade down over the book. It's drawn as
 // blurred shadows of the cone (shapes far off-canvas, shadows offset back), so
@@ -140,7 +149,8 @@ for mirrored in [false, true] {
     }
 }
 
-let image = ctx.makeImage()!
+var image = ctx.makeImage()!
+if markOnly { image = image.cropping(to: CGRect(x: 60, y: 120, width: 904, height: 790))! }
 let dest = CGImageDestinationCreateWithURL(URL(fileURLWithPath: out) as CFURL, UTType.png.identifier as CFString, 1, nil)!
 CGImageDestinationAddImage(dest, image, nil)
 CGImageDestinationFinalize(dest)

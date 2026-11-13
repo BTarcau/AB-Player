@@ -13,6 +13,8 @@ final class Library {
     /// A short message shown at the bottom of the screen.
     var message: String?
     private(set) var covers: [UUID: UIImage] = [:]
+    /// PDFs whose cover image is only a page of text (or a blank page).
+    private(set) var plainPageCovers: Set<UUID> = []
     /// Linked folders resolved from their bookmarks, kept open for the app's lifetime.
     @ObservationIgnored private var roots: [Data: URL] = [:]
 
@@ -153,9 +155,50 @@ final class Library {
 
     func cover(for book: Book) -> UIImage? { covers[book.id] }
 
+    /// Whether to draw a title cover instead of the book's cover image.
+    func usesTitleCover(_ book: Book) -> Bool {
+        guard covers[book.id] != nil else { return true }
+        return book.titleCover ?? plainPageCovers.contains(book.id)
+    }
+
     func reloadCover(_ book: Book) {
-        guard let file = book.coverFile else { covers[book.id] = nil; return }
-        covers[book.id] = Self.downsample(folder(for: book).appendingPathComponent(file), maxPixels: 900)
+        guard let file = book.coverFile else { covers[book.id] = nil; plainPageCovers.remove(book.id); return }
+        let image = Self.downsample(folder(for: book).appendingPathComponent(file), maxPixels: 900)
+        covers[book.id] = image
+        if book.text?.format == "pdf", let image, Self.looksLikePlainPage(image) {
+            plainPageCovers.insert(book.id)
+        } else {
+            plainPageCovers.remove(book.id)
+        }
+    }
+
+    /// A PDF's cover is its first page. This tells a designed cover from a
+    /// page that's just text on paper: nearly all of it pale and colourless,
+    /// with almost no colour and no large dark shapes (shrunk this small, lines
+    /// of text fade to light grey, but a cover's big lettering or artwork doesn't).
+    nonisolated static func looksLikePlainPage(_ image: UIImage) -> Bool {
+        guard let cg = image.cgImage else { return false }
+        let w = 60, h = 80
+        var px = [UInt8](repeating: 0, count: w * h * 4)
+        let drawn: Bool = px.withUnsafeMutableBytes { buf in
+            guard let ctx = CGContext(data: buf.baseAddress, width: w, height: h, bitsPerComponent: 8, bytesPerRow: w * 4,
+                                      space: CGColorSpaceCreateDeviceRGB(),
+                                      bitmapInfo: CGImageAlphaInfo.premultipliedLast.rawValue) else { return false }
+            ctx.interpolationQuality = .medium
+            ctx.draw(cg, in: CGRect(x: 0, y: 0, width: w, height: h))
+            return true
+        }
+        guard drawn else { return false }
+        var paper = 0, colour = 0, dark = 0
+        for i in 0..<(w * h) {
+            let r = Double(px[i * 4]) / 255, g = Double(px[i * 4 + 1]) / 255, b = Double(px[i * 4 + 2]) / 255
+            let hi = max(r, g, b), lo = min(r, g, b)
+            let sat = hi > 0 ? (hi - lo) / hi : 0
+            if hi > 0.72 && sat < 0.12 { paper += 1 } else if sat > 0.3 && hi > 0.25 { colour += 1 }
+            if hi < 0.4 { dark += 1 }
+        }
+        let n = Double(w * h)
+        return Double(paper) / n > 0.92 && Double(colour) / n < 0.04 && Double(dark) / n < 0.01
     }
 
     func setCover(_ data: Data, for book: Book) {

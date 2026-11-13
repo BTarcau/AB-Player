@@ -1,7 +1,7 @@
 import AVKit
 import SwiftUI
 
-/// The book's cover, or a coloured tile with its initials.
+/// The book's cover, or a title cover drawn for it.
 struct CoverView: View {
     @Environment(Library.self) private var library
     let book: Book
@@ -18,7 +18,7 @@ struct CoverView: View {
     private var shape: CGFloat { book.isText ? 2.0 / 3.0 : 1 }
 
     var body: some View {
-        if fit, let image = library.cover(for: book) {
+        if fit, !library.usesTitleCover(book), let image = library.cover(for: book) {
             Image(uiImage: image).resizable().scaledToFit()
                 .clipShape(RoundedRectangle(cornerRadius: corner, style: .continuous))
                 .frame(maxWidth: size, maxHeight: size)
@@ -38,21 +38,10 @@ struct CoverView: View {
     }
 
     @ViewBuilder private var art: some View {
-        if let image = library.cover(for: book) {
+        if !library.usesTitleCover(book), let image = library.cover(for: book) {
             Image(uiImage: image).resizable().scaledToFill()
         } else {
-            let hue = Self.hue(book.title)
-            LinearGradient(colors: [Color(hue: hue, saturation: 0.55, brightness: 0.55),
-                                    Color(hue: (hue + 0.11).truncatingRemainder(dividingBy: 1), saturation: 0.6, brightness: 0.32)],
-                           startPoint: .topLeading, endPoint: .bottomTrailing)
-                .overlay {
-                    GeometryReader { geo in
-                        Text(Self.initials(book.title))
-                            .font(.system(size: geo.size.width * 0.32, weight: .bold, design: .rounded))
-                            .foregroundStyle(.white.opacity(0.9))
-                            .frame(maxWidth: .infinity, maxHeight: .infinity)
-                    }
-                }
+            TitleCover(title: book.title, author: book.author)
         }
     }
 
@@ -66,6 +55,65 @@ struct CoverView: View {
         let words = title.split { !$0.isLetter && !$0.isNumber }
         let s = words.prefix(2).compactMap(\.first).map(String.init).joined().uppercased()
         return s.isEmpty ? "♪" : s
+    }
+}
+
+/// A plain clothbound cover for books without a real one: the title centred in
+/// the upper part under a thin rule, the author near the foot, a gilt border,
+/// and a shaded spine. Its colour comes from the title, so each book keeps its own.
+struct TitleCover: View {
+    let title: String
+    let author: String
+
+    private static let gilt = Color(red: 0.93, green: 0.85, blue: 0.66)
+
+    var body: some View {
+        GeometryReader { geo in
+            let w = geo.size.width, h = geo.size.height
+            let hue = CoverView.hue(title)
+            ZStack {
+                LinearGradient(colors: [Color(hue: hue, saturation: 0.42, brightness: 0.44),
+                                        Color(hue: hue, saturation: 0.48, brightness: 0.27)],
+                               startPoint: .top, endPoint: .bottom)
+                // the spine's fold
+                LinearGradient(colors: [.black.opacity(0.32), .black.opacity(0.08), .clear],
+                               startPoint: .leading, endPoint: .trailing)
+                    .frame(width: w * 0.09)
+                    .frame(maxWidth: .infinity, alignment: .leading)
+                Rectangle()
+                    .strokeBorder(Self.gilt.opacity(0.5), lineWidth: max(0.5, w * 0.006))
+                    .padding(w * 0.065)
+                VStack(spacing: 0) {
+                    VStack(spacing: h * 0.035) {
+                        Text(title)
+                            .font(.system(size: w * 0.115, weight: .semibold, design: .serif))
+                            .foregroundStyle(Self.gilt)
+                            .multilineTextAlignment(.center)
+                            .lineLimit(5)
+                            .minimumScaleFactor(0.45)
+                        Rectangle()
+                            .fill(Self.gilt.opacity(0.7))
+                            .frame(width: w * 0.22, height: max(0.5, w * 0.007))
+                    }
+                    .frame(maxWidth: .infinity, maxHeight: .infinity)
+                    .frame(height: h * 0.58)
+                    Spacer(minLength: 0)
+                    if !author.isEmpty {
+                        Text(author.uppercased())
+                            .font(.system(size: w * 0.052, weight: .medium, design: .serif))
+                            .kerning(w * 0.005)
+                            .foregroundStyle(Self.gilt.opacity(0.85))
+                            .multilineTextAlignment(.center)
+                            .lineLimit(2)
+                            .minimumScaleFactor(0.6)
+                    }
+                }
+                .padding(.horizontal, w * 0.14)
+                .padding(.top, h * 0.06)
+                .padding(.bottom, h * 0.1)
+            }
+        }
+        .accessibilityHidden(true)
     }
 }
 
@@ -89,7 +137,7 @@ func bookSubtitle(_ book: Book) -> String {
         let speed = max(0.1, UserDefaults.standard.object(forKey: "rd.speed") as? Double ?? 1)
         switch book.status {
         case .finished:
-            parts = ["Ebook", "Finished"]
+            parts = ["Ebook", "Read"]
         case .notStarted:
             let n = t.chapterTitles.count
             parts = ["Ebook", t.format.uppercased(), "≈" + Fmt.long(book.totalTime / speed), "\(n) chapter\(n == 1 ? "" : "s")"]
@@ -99,7 +147,7 @@ func bookSubtitle(_ book: Book) -> String {
     } else {
         switch book.status {
         case .finished:
-            parts = ["Audiobook", "Finished"]
+            parts = ["Audiobook", "Read"]
         case .notStarted:
             let n = book.chapters.count
             parts = ["Audiobook", Fmt.long(book.duration), "\(n) chapter\(n == 1 ? "" : "s")"]

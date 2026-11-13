@@ -237,6 +237,16 @@ struct VoiceSheet: View {
                                 reader.clearAudio()
                             }
                         }
+                    } else if settings.source == .pocket {
+                        if let reason = PocketEngine.unavailableReason {
+                            Text(reason).foregroundStyle(.secondary)
+                        }
+                        ForEach(PocketEngine.voices, id: \.self) { id in
+                            row(id.capitalized, "Cloned narrator · Pocket TTS", selected: settings.pocketVoice == id) {
+                                settings.pocketVoice = id
+                                reader.clearAudio()
+                            }
+                        }
                     } else {
                         ForEach(DeviceVoice.voices()) { v in
                             row(v.name, v.detail, selected: settings.deviceVoice == v.id) {

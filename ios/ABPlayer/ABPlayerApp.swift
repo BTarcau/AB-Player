@@ -38,6 +38,12 @@ struct ABPlayerApp: App {
                         UserDefaults.standard.set(true, forKey: "lastOpenedText")
                         await reader.open(lastText)
                     }
+                    if ReaderPlayer.spikeRun, let lastText {
+                        await reader.open(lastText)
+                        readerSettings.source = .pocket
+                        PocketLog.write("spike: reading \(lastText.title) from chapter \(reader.chapter?.title ?? "?")")
+                        reader.play()
+                    }
                     await library.scanFilesFolder()
                     await library.scanWatchedFolder(announce: false)
                 }

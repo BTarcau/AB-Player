@@ -142,7 +142,7 @@ final class ReaderPlayer: RemoteTarget {
         return (0, 0)
     }
 
-    var secPerCharNow: Double { settings.secPerChar / max(0.1, settings.speed) }
+    var secPerCharNow: Double { settings.secPerChar / max(0.1, settings.voiceSpeed) }
 
     struct PositionInfo { var chapterElapsed: Double; var chapterTotal: Double; var bookFraction: Double; var bookSecLeft: Double }
 
@@ -406,6 +406,7 @@ final class ReaderPlayer: RemoteTarget {
             if wait > 0 {
                 if !paceRetry {
                     paceRetry = true
+                    if settings.source == .pocket, wait >= 0.5 { PocketLog.write(String(format: "pacing: holding the next sentence %.1f s to keep background CPU at 50%%", wait)) }
                     DispatchQueue.main.asyncAfter(deadline: .now() + wait) { [weak self] in
                         MainActor.assumeIsolated { self?.paceRetry = false; self?.pump() }
                     }
@@ -418,14 +419,12 @@ final class ReaderPlayer: RemoteTarget {
             running.append(run)
             let text = TextPipeline.speechText(chapters[job.c].sentences[job.s], settings.rules)
             let source = settings.source, gap = settings.gapMs
-            let voice = settings.currentVoice, speed = settings.speed
+            let voice = settings.currentVoice, speed = settings.voiceSpeed
             Task {
                 let result: Result<Clip, Error> = await Task.detached {
                     do {
                         if text.trimmingCharacters(in: .whitespaces).isEmpty { return .success(Clip(buffer: ClipAudio.silence(0.05))) }
-                        let raw = source == .kokoro
-                            ? try await KokoroEngine.shared.generate(text: text, voice: voice, speed: speed)
-                            : try await DeviceVoice.shared.generate(text: text, voiceID: voice, speed: speed)
+                        let raw = try await Self.generate(source, text: text, voice: voice, speed: speed)
                         return .success(Clip(buffer: ClipAudio.compressSilence(raw, gapMs: gap)))
                     } catch { return .failure(error) }
                 }.value
@@ -506,7 +505,11 @@ final class ReaderPlayer: RemoteTarget {
     }()
 
     private var genKey: String {
-        settings.source == .kokoro ? "kokoro neural engine" : "device"
+        switch settings.source {
+        case .kokoro: return "kokoro neural engine"
+        case .device: return "device"
+        case .pocket: return "pocket cpu"
+        }
     }
 
     private func genStats() -> GenStats {
@@ -613,6 +616,31 @@ final class ReaderPlayer: RemoteTarget {
         case .device:
             if settings.deviceVoice.isEmpty { settings.deviceVoice = DeviceVoice.defaultVoiceID() }
             return true
+        case .pocket:
+            if let reason = PocketEngine.unavailableReason {
+                status.line = reason
+                return false
+            }
+            if !PocketEngine.voices.contains(settings.pocketVoice) { settings.pocketVoice = PocketEngine.voices[0] }
+            guard !PocketEngine.shared.isLoaded else { return true }
+            let loading = "Loading the \(settings.pocketVoice.capitalized) voice…"
+            status.line = loading
+            do {
+                try await PocketEngine.shared.prepare(voice: settings.pocketVoice)
+                if status.line == loading { status.line = "" }
+                return true
+            } catch {
+                status.line = error.localizedDescription
+                return false
+            }
+        }
+    }
+
+    nonisolated private static func generate(_ source: VoiceSource, text: String, voice: String, speed: Double) async throws -> AVAudioPCMBuffer {
+        switch source {
+        case .kokoro: return try await KokoroEngine.shared.generate(text: text, voice: voice, speed: speed)
+        case .device: return try await DeviceVoice.shared.generate(text: text, voiceID: voice, speed: speed)
+        case .pocket: return try await PocketEngine.shared.generate(text: text, voice: voice)
         }
     }
 
@@ -633,6 +661,7 @@ final class ReaderPlayer: RemoteTarget {
         state = .preparing
         let (c, i) = (ch, s)
         let stalled = cache[key(c, i)]?.clip == nil
+        if settings.source == .pocket, continuing, stalled { gapSince = Date() }
         Task {
             guard await ensureReady() else {
                 if myToken == token { stopAudio(); state = .idle; engine.pause() }
@@ -675,6 +704,14 @@ final class ReaderPlayer: RemoteTarget {
     }
 
     private func schedule(_ clip: Clip, myToken: Int, lastText: String) {
+        if let since = gapSince {
+            PocketLog.write(String(format: "GAP: %.2f s of silence waiting for the next sentence", Date().timeIntervalSince(since)))
+            gapSince = nil
+        }
+        if settings.source == .pocket {
+            let ready = cache.values.filter { $0.clip != nil }.count
+            PocketLog.write(String(format: "playing %d.%d (%.1f s); %d clips ready, %d queued", ch, s, clip.duration, ready, queue.count))
+        }
         startEngine()
         clipStartSample = currentSample()
         node.scheduleBuffer(clip.buffer, at: nil, options: [], completionCallbackType: .dataPlayedBack) { [weak self] _ in
@@ -736,14 +773,13 @@ final class ReaderPlayer: RemoteTarget {
 
     func preview(_ text: String) {
         let speech = TextPipeline.speechText(text, settings.rules)
-        let source = settings.source, voice = settings.currentVoice, speed = settings.speed, gap = settings.gapMs
+        let source = settings.source, voice = settings.currentVoice, speed = settings.voiceSpeed, gap = settings.gapMs
         if state != .idle { pause() }
         Task {
             guard await ensureReady() else { return }
             do {
                 let raw = try await Task.detached {
-                    source == .kokoro ? try await KokoroEngine.shared.generate(text: speech, voice: voice, speed: speed)
-                        : try await DeviceVoice.shared.generate(text: speech, voiceID: voice, speed: speed)
+                    try await Self.generate(source, text: speech, voice: voice, speed: speed)
                 }.value
                 startEngine()
                 node.stop()
@@ -755,10 +791,23 @@ final class ReaderPlayer: RemoteTarget {
         }
     }
 
+    // MARK: Pocket spike (debug builds)
+
+    /// Launched with -pocketSpike: reads the last ebook aloud with the Pocket voice
+    /// and logs every gap, without moving the saved place in the book.
+    static let spikeRun: Bool = {
+        #if DEBUG
+        return ProcessInfo.processInfo.arguments.contains("-pocketSpike")
+        #else
+        return false
+        #endif
+    }()
+    @ObservationIgnored private var gapSince: Date?
+
     // MARK: Saving
 
     func save(force: Bool) {
-        guard let id = bookID, !chapters.isEmpty else { return }
+        guard let id = bookID, !chapters.isEmpty, !Self.spikeRun else { return }
         guard force || Date().timeIntervalSince(lastSave) > 5 else { return }
         lastSave = Date()
         let (c, i, done) = (ch, s, finished)

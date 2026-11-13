@@ -72,9 +72,7 @@ struct ReaderSettingsSections: View {
         } header: {
             Label("Ebooks Read Aloud", systemImage: BookKind.ebookIcon)
         } footer: {
-            Text(settings.source == .kokoro
-                 ? (KokoroEngine.unavailableReason ?? "Kokoro runs on this \(ThisDevice.name)'s Neural Engine. Nothing is sent anywhere, it works offline, and it keeps reading ahead while the screen is locked.")
-                 : "Apple's built-in voices. Kokoro sounds more natural.")
+            Text(sourceFooter)
             + Text(status.line.isEmpty ? "" : "\n\n" + status.line)
         }
         .onAppear { gap = Double(settings.gapMs) }
@@ -185,8 +183,22 @@ struct ReaderSettingsSections: View {
     }
 
     private var voiceName: String {
-        settings.source == .kokoro ? friendlyVoiceName(settings.kokoroVoice).name
-            : DeviceVoice.voices().first { $0.id == settings.deviceVoice }?.name ?? "Default"
+        switch settings.source {
+        case .kokoro: return friendlyVoiceName(settings.kokoroVoice).name
+        case .device: return DeviceVoice.voices().first { $0.id == settings.deviceVoice }?.name ?? "Default"
+        case .pocket: return settings.pocketVoice.capitalized
+        }
+    }
+
+    private var sourceFooter: String {
+        switch settings.source {
+        case .kokoro:
+            return KokoroEngine.unavailableReason ?? "Kokoro runs on this \(ThisDevice.name)'s Neural Engine. Nothing is sent anywhere, it works offline, and it keeps reading ahead while the screen is locked."
+        case .device:
+            return "Apple's built-in voices. Kokoro sounds more natural."
+        case .pocket:
+            return PocketEngine.unavailableReason ?? "A narrator's voice, copied by Pocket TTS on this \(ThisDevice.name)'s processor. Nothing is sent anywhere and it works offline."
+        }
     }
 }
 

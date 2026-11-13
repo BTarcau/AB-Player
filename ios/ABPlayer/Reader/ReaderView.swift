@@ -217,6 +217,7 @@ private struct PlayerCard: View {
         switch settings.source {
         case .kokoro: return friendlyVoiceName(settings.kokoroVoice).name
         case .device: return DeviceVoice.voices().first { $0.id == settings.deviceVoice }?.name ?? "Voice"
+        case .pocket: return settings.pocketVoice.capitalized
         }
     }
 }

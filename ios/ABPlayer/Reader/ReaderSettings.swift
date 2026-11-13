@@ -7,8 +7,16 @@ enum VoiceSource: String, CaseIterable, Identifiable {
     case kokoro
     /// Apple's built-in voices.
     case device
+    /// Pocket TTS, copying a narrator's voice from a reference clip, on this iPhone's CPU.
+    case pocket
     var id: String { rawValue }
-    var label: String { self == .kokoro ? "Kokoro" : "\(ThisDevice.name) voice" }
+    var label: String {
+        switch self {
+        case .kokoro: return "Kokoro"
+        case .device: return "\(ThisDevice.name) voice"
+        case .pocket: return PocketEngine.voices.count == 1 ? PocketEngine.voices[0].capitalized : "Cloned"
+        }
+    }
 }
 
 enum SkipUnit: String, CaseIterable, Identifiable {
@@ -95,6 +103,7 @@ final class ReaderSettings {
     var source: VoiceSource { didSet { d.set(source.rawValue, forKey: "rd.source") } }
     var kokoroVoice: String { didSet { d.set(kokoroVoice, forKey: "rd.kokoroVoice") } }
     var deviceVoice: String { didSet { d.set(deviceVoice, forKey: "rd.deviceVoice") } }
+    var pocketVoice: String { didSet { d.set(pocketVoice, forKey: "rd.pocketVoice") } }
     var speed: Double { didSet { d.set(speed, forKey: "rd.speed") } }
     var gapMs: Int { didSet { d.set(gapMs, forKey: "rd.gapMs") } }
     var skipUnit: SkipUnit { didSet { d.set(skipUnit.rawValue, forKey: "rd.skipUnit") } }
@@ -124,12 +133,23 @@ final class ReaderSettings {
         return TextRules(filterEnabled: filterEnabled, filterRegex: filterRegexCache ?? nil, pronunciationRules: pronunciationRules)
     }
 
-    var currentVoice: String { source == .kokoro ? kokoroVoice : deviceVoice }
+    /// The speed the voice reads at. The cloned narrator keeps his own pace; the
+    /// speed setting is there for Kokoro, which reads too fast.
+    var voiceSpeed: Double { source == .pocket ? 1 : speed }
+
+    var currentVoice: String {
+        switch source {
+        case .kokoro: return kokoroVoice
+        case .device: return deviceVoice
+        case .pocket: return pocketVoice
+        }
+    }
 
     private init() {
         source = VoiceSource(rawValue: d.string(forKey: "rd.source") ?? "") ?? .kokoro
         kokoroVoice = d.string(forKey: "rd.kokoroVoice") ?? "af_heart"
         deviceVoice = d.string(forKey: "rd.deviceVoice") ?? ""
+        pocketVoice = d.string(forKey: "rd.pocketVoice") ?? "andrei"
         speed = d.object(forKey: "rd.speed") as? Double ?? 1
         gapMs = d.object(forKey: "rd.gapMs") as? Int ?? 80
         skipUnit = SkipUnit(rawValue: d.string(forKey: "rd.skipUnit") ?? "") ?? .sentence

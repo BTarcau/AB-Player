@@ -45,6 +45,11 @@ struct ABPlayerApp: App {
                     if ReaderPlayer.spikeRun, let lastText {
                         await reader.open(lastText)
                         readerSettings.source = .pocket
+                        if ProcessInfo.processInfo.arguments.contains("-castSpike") {
+                            // Character voices too: Kokoro for the dialogue alongside the Pocket narrator.
+                            await CastStore.shared.findCharacters(lastText)
+                            PocketLog.write("spike: \(CastStore.shared.cast?.characters.count ?? 0) characters, \(CastStore.shared.cast?.dialogueCount ?? 0) lines")
+                        }
                         PocketLog.write("spike: reading \(lastText.title) from chapter \(reader.chapter?.title ?? "?")")
                         reader.play()
                     }

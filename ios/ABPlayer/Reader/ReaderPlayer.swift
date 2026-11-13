@@ -45,6 +45,7 @@ final class ReaderPlayer: RemoteTarget {
 
     init(library: Library) {
         self.library = library
+        CastStore.shared.configure(library: library)
         engine.attach(node)
         engine.connect(node, to: engine.mainMixerNode, format: ClipAudio.format)
         let center = NotificationCenter.default
@@ -75,6 +76,50 @@ final class ReaderPlayer: RemoteTarget {
         center.addObserver(forName: .AVAudioEngineConfigurationChange, object: engine, queue: .main) { [weak self] _ in
             MainActor.assumeIsolated { self?.audioConfigurationChanged() }
         }
+        CastStore.shared.changed = { [weak self] id in
+            guard let self, self.bookID == id else { return }
+            self.lineVoices = CastStore.shared.sentenceVoices(id, chapters: self.chapters)
+            self.warmCharacterVoices()
+            self.clearAudio()
+        }
+    }
+
+    private var hasCharacterVoices: Bool { lineVoices.contains { $0.contains { $0 != nil } } }
+    private static let charactersLoading = "Getting the character voices ready; the narrator reads their lines until then."
+    @ObservationIgnored private var warming = false
+
+    /// Loads Kokoro in the background as soon as a book with character voices
+    /// is open, so pressing play doesn't wait for it.
+    private func warmCharacterVoices() {
+        guard hasCharacterVoices, KokoroEngine.unavailableReason == nil, !KokoroEngine.shared.isLoaded, !warming else { return }
+        warming = true
+        Task {
+            let started = Date()
+            try? await Task.detached(priority: .userInitiated) { try await KokoroEngine.shared.prepare(voice: CastVoices.male[0]) }.value
+            PocketLog.write(String(format: "character voices (Kokoro) loaded in %.1f s", Date().timeIntervalSince(started)))
+            warming = false
+            if status.line == Self.charactersLoading { status.line = "" }
+            // Lines already made in the narrator's voice are remade in the characters' own.
+            if KokoroEngine.shared.isLoaded { remakeNarratedCharacterLines() }
+        }
+    }
+
+    /// Ready clips of characters' lines that the narrator read while Kokoro was loading.
+    @ObservationIgnored private var narratedCharacterKeys: Set<String> = []
+
+    private func remakeNarratedCharacterLines() {
+        let current = key(ch, s)
+        for k in narratedCharacterKeys where k != current { cache[k] = nil }
+        narratedCharacterKeys = []
+        if state != .idle { prefetch(burst: UIApplication.shared.applicationState == .background) }
+    }
+
+    /// Character voices: a Kokoro voice for each sentence of a character's
+    /// dialogue, nil for the narrator. Empty when the book has none or they're off.
+    @ObservationIgnored private var lineVoices: [[String?]] = []
+
+    private func lineVoice(_ c: Int, _ s: Int) -> String? {
+        lineVoices.indices.contains(c) && lineVoices[c].indices.contains(s) ? lineVoices[c][s] : nil
     }
 
     // MARK: Opening
@@ -92,6 +137,8 @@ final class ReaderPlayer: RemoteTarget {
             let parsed = try await library.parsedText(for: book)
             guard bookID == book.id else { return }
             chapters = parsed.chapters
+            lineVoices = CastStore.shared.sentenceVoices(book.id, chapters: chapters)
+            warmCharacterVoices()
         } catch {
             library.message = "That book couldn't be read: \(error.localizedDescription)"
             bookID = nil
@@ -128,6 +175,7 @@ final class ReaderPlayer: RemoteTarget {
         save(force: true)
         bookID = nil
         chapters = []
+        lineVoices = []
         dropAll()
     }
 
@@ -340,6 +388,8 @@ final class ReaderPlayer: RemoteTarget {
     @ObservationIgnored private var cache: [String: Entry] = [:]
     @ObservationIgnored private var queue: [Job] = []
     @ObservationIgnored private var running: [(key: String, chars: Int, sentAt: Date)] = []
+    /// Running clips that are a character's line (read by Kokoro).
+    @ObservationIgnored private var characterKeys: Set<String> = []
     @ObservationIgnored private var lastGenDone = Date.distantPast
     private static let inFlight = 2
     private static let lookahead: Double = 45
@@ -414,7 +464,15 @@ final class ReaderPlayer: RemoteTarget {
     }
 
     private func pump() {
-        while running.count < Self.inFlight, !queue.isEmpty {
+        // With a cloned narrator and Kokoro characters, each engine gets its own
+        // slot (they run on different hardware), so lines waiting on one never hold up the other.
+        let mixing = settings.source != .kokoro && !lineVoices.isEmpty
+        func allowed(_ j: Job) -> Bool {
+            guard mixing else { return true }
+            let character = lineVoice(j.c, j.s) != nil
+            return running.filter { characterKeys.contains($0.key) == character }.isEmpty
+        }
+        while running.count < Self.inFlight, let next = queue.firstIndex(where: allowed) {
             let wait = paceWait()
             if wait > 0 {
                 if !paceRetry {
@@ -426,13 +484,22 @@ final class ReaderPlayer: RemoteTarget {
                 }
                 return
             }
-            let job = queue.removeFirst()
+            let job = queue.remove(at: next)
             guard cache[job.entry.key] === job.entry else { fail(job.entry, Dropped()); continue }
             let run = (key: job.entry.key, chars: job.entry.chars, sentAt: Date())
             running.append(run)
+            var character = lineVoice(job.c, job.s)
+            if character != nil, !KokoroEngine.shared.isLoaded, settings.source != .kokoro {
+                // Kokoro isn't ready yet: the narrator reads this line for now.
+                narratedCharacterKeys.insert(run.key)
+                character = nil
+            }
+            if character != nil { characterKeys.insert(run.key) }
             let text = TextPipeline.speechText(chapters[job.c].sentences[job.s], settings.rules)
-            let source = settings.source, gap = settings.gapMs
-            let voice = settings.currentVoice, speed = settings.voiceSpeed
+            let gap = settings.gapMs
+            var source = settings.source, voice = settings.currentVoice, speed = settings.voiceSpeed
+            if let character { source = .kokoro; voice = character; speed = settings.speed }
+            let logCharacter = character != nil && settings.source != .kokoro
             Task {
                 let result: Result<Clip, Error> = await Task.detached {
                     do {
@@ -441,6 +508,9 @@ final class ReaderPlayer: RemoteTarget {
                         return .success(Clip(buffer: ClipAudio.compressSilence(raw, gapMs: gap)))
                     } catch { return .failure(error) }
                 }.value
+                if logCharacter {
+                    PocketLog.write(String(format: "character line %d chars (%@): ready after %.2f s", text.count, voice, Date().timeIntervalSince(run.sentAt)))
+                }
                 self.finished(run, job.entry, result, speed: speed)
             }
         }
@@ -449,7 +519,9 @@ final class ReaderPlayer: RemoteTarget {
     private func finished(_ run: (key: String, chars: Int, sentAt: Date), _ e: Entry, _ result: Result<Clip, Error>, speed: Double) {
         let now = Date()
         running.removeAll { $0.key == run.key && $0.sentAt == run.sentAt }
-        if case .success(let clip) = result {
+        // Kokoro's character lines don't teach the narrator's timing.
+        let character = characterKeys.remove(run.key) != nil && settings.source != .kokoro
+        if case .success(let clip) = result, !character {
             learnGenTime(chars: run.chars, seconds: now.timeIntervalSince(max(run.sentAt, lastGenDone)))
             // Learn how fast this voice reads, so the time estimates fit it.
             if e.chars > 40, clip.duration > 0 {
@@ -611,8 +683,20 @@ final class ReaderPlayer: RemoteTarget {
 
     // MARK: The clip loop
 
-    /// Loads the Kokoro models before the first sentence (a few seconds, once per launch).
+    /// Loads the Kokoro models before the first sentence (a few seconds, once per launch),
+    /// and Kokoro as well when characters are read in their own voices.
     private func ensureReady() async -> Bool {
+        guard await ensureNarratorReady() else { return false }
+        // Don't wait for Kokoro: after an app update iOS takes about a minute to
+        // get it ready, so until then the narrator reads the characters' lines too.
+        if hasCharacterVoices, !KokoroEngine.shared.isLoaded, KokoroEngine.unavailableReason == nil, settings.source != .kokoro {
+            warmCharacterVoices()
+            if status.line.isEmpty { status.line = Self.charactersLoading }
+        }
+        return true
+    }
+
+    private func ensureNarratorReady() async -> Bool {
         switch settings.source {
         case .kokoro:
             if let reason = KokoroEngine.unavailableReason {
@@ -660,7 +744,7 @@ final class ReaderPlayer: RemoteTarget {
         let to: VoiceSource = KokoroEngine.unavailableReason == nil ? .kokoro : .device
         settings.source = to
         PocketEngine.shared.unload()
-        let ready = await ensureReady()
+        let ready = await ensureNarratorReady()
         status.line = "The \(settings.pocketVoice.capitalized) voice couldn't run (\(error.localizedDescription)), so \(to.label) is reading."
         return ready
     }
@@ -688,6 +772,7 @@ final class ReaderPlayer: RemoteTarget {
             return
         }
         state = .preparing
+        let began = Date()
         let (c, i) = (ch, s)
         let stalled = cache[key(c, i)]?.clip == nil
         if settings.source == .pocket, continuing, stalled { gapSince = Date() }
@@ -729,8 +814,12 @@ final class ReaderPlayer: RemoteTarget {
                 return
             }
             guard myToken == token else { return }
+            let clipReady = Date()
             if stalled || !continuing {
                 guard await waitForHeadStart(myToken) else { return }
+            }
+            if !continuing {
+                PocketLog.write(String(format: "start: first sentence ready after %.1f s, playing after %.1f s", clipReady.timeIntervalSince(began), Date().timeIntervalSince(began)))
             }
             if status.line.hasPrefix("Buffering") || status.line == "Generating…" || status.line.hasPrefix("Voice generation failed") { status.line = "" }
             failuresInARow = 0
@@ -806,9 +895,11 @@ final class ReaderPlayer: RemoteTarget {
 
     // MARK: Voice preview
 
-    func preview(_ text: String) {
+    func preview(_ text: String, kokoroVoice: String? = nil) {
         let speech = TextPipeline.speechText(text, settings.rules)
-        let source = settings.source, voice = settings.currentVoice, speed = settings.voiceSpeed, gap = settings.gapMs
+        var source = settings.source, voice = settings.currentVoice, speed = settings.voiceSpeed
+        let gap = settings.gapMs
+        if let kokoroVoice { source = .kokoro; voice = kokoroVoice; speed = settings.speed }
         if state != .idle { pause() }
         Task {
             guard await ensureReady() else { return }

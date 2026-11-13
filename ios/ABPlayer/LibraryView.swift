@@ -45,6 +45,7 @@ struct LibraryView: View {
     @State private var showPicker = false
     @State private var editing: Book?
     @State private var confirmDelete: Book?
+    @State private var castBook: Book?
 
     private var visibleBooks: [Book] { filteredBooks(searching: true) }
 
@@ -219,6 +220,7 @@ struct LibraryView: View {
         .sheet(isPresented: $showHowTo) { HowToAddView() }
         .sheet(isPresented: $showShelves) { ShelvesSheet() }
         .sheet(item: $editing) { book in EditBookView(book: book) }
+        .sheet(item: $castBook) { book in CharacterVoicesSheet(book: book) }
         .fileImporter(isPresented: $showPicker,
                       allowedContentTypes: pickerMode.types,
                       allowsMultipleSelection: pickerMode != .watchFolder) { result in
@@ -457,6 +459,9 @@ struct LibraryView: View {
                 lastOpenedText = false
                 player.open(book, autoplay: true)
             }
+        }
+        if book.isText {
+            Button("Character Voices…", systemImage: "person.2.wave.2") { castBook = book }
         }
         Button("Edit Details", systemImage: "pencil") { editing = book }
         if library.cover(for: book) != nil {

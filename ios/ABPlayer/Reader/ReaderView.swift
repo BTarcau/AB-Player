@@ -15,6 +15,7 @@ struct ReaderView: View {
     @State private var showDisplay = false
     @State private var showVoice = false
     @State private var showSettings = false
+    @State private var showCast = false
     @State private var currentVisible = true
     @State private var catchUp = 0
 
@@ -53,9 +54,9 @@ struct ReaderView: View {
                             .background(Color(p.lampDark), in: Capsule())
                             .foregroundStyle(Color(p.paper))
                     }
-                    .padding(.bottom, 230)
+                    .padding(.bottom, 280)
                 }
-                PlayerCard(palette: p, showVoice: $showVoice)
+                PlayerCard(palette: p, showVoice: $showVoice, showCast: $showCast)
                     .frame(maxWidth: ReadingTextView.measure + 40)
             } else if reader.isLoading {
                 ProgressView("Opening…").tint(Color(p.ink)).foregroundStyle(Color(p.ink))
@@ -66,6 +67,7 @@ struct ReaderView: View {
         .sheet(isPresented: $showDisplay) { DisplaySheet().presentationDetents([.medium]) }
         .sheet(isPresented: $showVoice) { VoiceSheet() }
         .sheet(isPresented: $showSettings) { SettingsView() }
+        .sheet(isPresented: $showCast) { if let book = reader.book { CharacterVoicesSheet(book: book) } }
         .onChange(of: scenePhase) { _, phase in if phase == .active { catchUp += 1 } }
         .onChange(of: settings.follow) { _, on in if on { catchUp += 1 } }
         .animation(.easeInOut(duration: 0.2), value: currentVisible)
@@ -110,6 +112,13 @@ private struct PlayerCard: View {
     @Environment(VoiceStatus.self) private var status
     let palette: ReaderPalette
     @Binding var showVoice: Bool
+    @Binding var showCast: Bool
+    @State private var store = CastStore.shared
+
+    private var castOn: Bool {
+        guard let id = reader.bookID, store.bookID == id, let cast = store.cast else { return false }
+        return cast.enabled
+    }
 
     var body: some View {
         let p = palette
@@ -148,15 +157,8 @@ private struct PlayerCard: View {
                 Text("-" + Fmt.clock(max(0, info.chapterTotal - info.chapterElapsed))).font(.caption.monospacedDigit())
             }
             .foregroundStyle(Color(p.inkSoft))
-            HStack {
-                Button { showVoice = true } label: {
-                    Text(String(format: "%.1f×", settings.speed)).font(.subheadline.weight(.semibold).monospacedDigit())
-                        .padding(.horizontal, 10).padding(.vertical, 6)
-                        .background(Color(p.paper2), in: Capsule())
-                }
-                .accessibilityLabel("Speed \(String(format: "%.1f", settings.speed)). Voice and speed")
-                SleepTimerMenu(sleep: reader.sleep, remaining: reader.sleepRemaining, tint: Color(p.brass), plain: Color(p.inkSoft)) { reader.setSleep($0) }
-                Spacer(minLength: 0)
+            // Back, play/pause and forward, on their own row.
+            HStack(spacing: 22) {
                 skipButton(back: true)
                 Button { reader.togglePlay() } label: {
                     ZStack {
@@ -171,6 +173,25 @@ private struct PlayerCard: View {
                 }
                 .accessibilityLabel(reader.state == .idle ? "Play" : "Pause")
                 skipButton(back: false)
+            }
+            .foregroundStyle(Color(p.ink))
+            // Speed, sleep timer, character voices and the voice, underneath.
+            HStack {
+                Button { showVoice = true } label: {
+                    Text(String(format: "%.1f×", settings.speed)).font(.subheadline.weight(.semibold).monospacedDigit())
+                        .padding(.horizontal, 10).padding(.vertical, 6)
+                        .background(Color(p.paper2), in: Capsule())
+                }
+                .accessibilityLabel("Speed \(String(format: "%.1f", settings.speed)). Voice and speed")
+                Spacer(minLength: 0)
+                SleepTimerMenu(sleep: reader.sleep, remaining: reader.sleepRemaining, tint: Color(p.brass), plain: Color(p.inkSoft)) { reader.setSleep($0) }
+                Spacer(minLength: 0)
+                Button { showCast = true } label: {
+                    Image(systemName: castOn ? "person.2.wave.2.fill" : "person.2.wave.2")
+                        .font(.body).foregroundStyle(castOn ? Color(p.brass) : Color(p.inkSoft))
+                        .frame(width: 36, height: 36)
+                }
+                .accessibilityLabel(castOn ? "Character voices, on" : "Character voices")
                 Spacer(minLength: 0)
                 Button { showVoice = true } label: {
                     Text(voiceLabel).font(.subheadline.weight(.semibold)).lineLimit(1)
@@ -266,7 +287,7 @@ struct ChapterTextView: UIViewRepresentable {
         let tv = ReadingTextView(usingTextLayoutManager: false)
         tv.isEditable = false
         tv.isSelectable = false
-        tv.textContainerInset = UIEdgeInsets(top: 22, left: 20, bottom: 230, right: 20)
+        tv.textContainerInset = UIEdgeInsets(top: 22, left: 20, bottom: 280, right: 20)
         tv.alwaysBounceVertical = true
         tv.delegate = context.coordinator
         let double = UITapGestureRecognizer(target: context.coordinator, action: #selector(Coordinator.doubleTapped(_:)))

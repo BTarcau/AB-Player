@@ -2,7 +2,7 @@
 
 A SwiftUI version of the AB-Player web app, built with AVFoundation. Same idea: each folder of audio files you add is one book, and it remembers where you stopped. Being a real app, it can do a lot that the Home Screen web app couldn't.
 
-Requires iOS 18 or later. One third-party dependency: [kokoro-coreml](https://github.com/mattmireles/kokoro-coreml) (Apache-2.0) for the Kokoro voice, which brings MisakiSwift and MLX (Apache-2.0 and MIT).
+Requires iOS 18 or later. Third-party dependencies: [kokoro-coreml](https://github.com/mattmireles/kokoro-coreml) (Apache-2.0) for the Kokoro voice, which brings MisakiSwift and MLX (Apache-2.0 and MIT), and [sherpa-onnx](https://github.com/k2-fsa/sherpa-onnx) (Apache-2.0, with ONNX Runtime, MIT) for the cloned narrator voices, which use Kyutai's [Pocket TTS](https://github.com/kyutai-labs/pocket-tts) (CC BY 4.0). Run `ios/Scripts/setup-kokoro.sh` and `ios/Scripts/setup-pocket.sh` once before building; the Pocket voices come from reference clips in `ios/PocketVoices/` (see `ios/Scripts/pocket-reference.py`), which stay out of git. Credits are in Settings › Acknowledgements.
 
 ## What's new compared with the web app
 

@@ -31,6 +31,7 @@ struct SettingsView: View {
                 ReaderSettingsSections(part: .library)
                 Section {
                     NavigationLink("How to add books") { HowToAddView(embedded: true) }
+                    NavigationLink("Acknowledgements") { AcknowledgementsView() }
                     LabeledContent("Version", value: Bundle.main.object(forInfoDictionaryKey: "CFBundleShortVersionString") as? String ?? "")
                 } header: {
                     Label("App", systemImage: "sparkles")

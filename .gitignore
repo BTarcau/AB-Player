@@ -10,3 +10,8 @@ ios/KokoroRuntime/*
 # Personal library data and phone backups from the cleanup scripts
 ios/library-cleanup/
 ios/Packages/
+ios/PocketRuntime/*
+!ios/PocketRuntime/README.md
+
+# Reference clips for cloned voices (copies of real people's voices) stay on this Mac
+ios/PocketVoices/

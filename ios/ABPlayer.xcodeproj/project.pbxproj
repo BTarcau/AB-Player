@@ -10,11 +10,14 @@
 		AB0000000000000000000001 /* ABPlayer.app */ = {isa = PBXFileReference; explicitFileType = wrapper.application; includeInIndex = 0; path = ABPlayer.app; sourceTree = BUILT_PRODUCTS_DIR; };
 		AB0000000000000000000010 /* Info.plist */ = {isa = PBXFileReference; lastKnownFileType = text.plist.xml; path = Info.plist; sourceTree = "<group>"; };
 		AB0000000000000000000011 /* KokoroRuntime */ = {isa = PBXFileReference; lastKnownFileType = folder; path = KokoroRuntime; sourceTree = "<group>"; };
+		AB0000000000000000000017 /* PocketRuntime */ = {isa = PBXFileReference; lastKnownFileType = folder; path = PocketRuntime; sourceTree = "<group>"; };
 /* End PBXFileReference section */
 
 /* Begin PBXBuildFile section */
 		AB0000000000000000000012 /* KokoroRuntime in Resources */ = {isa = PBXBuildFile; fileRef = AB0000000000000000000011 /* KokoroRuntime */; };
 		AB0000000000000000000015 /* KokoroTTS in Frameworks */ = {isa = PBXBuildFile; productRef = AB0000000000000000000014 /* KokoroTTS */; };
+		AB0000000000000000000018 /* PocketRuntime in Resources */ = {isa = PBXBuildFile; fileRef = AB0000000000000000000017 /* PocketRuntime */; };
+		AB000000000000000000001B /* sherpa-onnx in Frameworks */ = {isa = PBXBuildFile; productRef = AB000000000000000000001A /* sherpa-onnx */; };
 /* End PBXBuildFile section */
 
 /* Begin PBXFileSystemSynchronizedRootGroup section */
@@ -27,6 +30,7 @@
 			buildActionMask = 2147483647;
 			files = (
 				AB0000000000000000000015 /* KokoroTTS in Frameworks */,
+				AB000000000000000000001B /* sherpa-onnx in Frameworks */,
 			);
 			runOnlyForDeploymentPostprocessing = 0;
 		};
@@ -39,6 +43,7 @@
 				AB0000000000000000000002 /* ABPlayer */,
 				AB0000000000000000000010 /* Info.plist */,
 				AB0000000000000000000011 /* KokoroRuntime */,
+				AB0000000000000000000017 /* PocketRuntime */,
 				AB0000000000000000000005 /* Products */,
 			);
 			sourceTree = "<group>";
@@ -72,6 +77,7 @@
 			name = ABPlayer;
 			packageProductDependencies = (
 				AB0000000000000000000014 /* KokoroTTS */,
+				AB000000000000000000001A /* sherpa-onnx */,
 			);
 			productName = ABPlayer;
 			productReference = AB0000000000000000000001 /* ABPlayer.app */;
@@ -104,6 +110,7 @@
 			packageReferences = (
 				AB0000000000000000000013 /* XCRemoteSwiftPackageReference "kokoro-coreml" */,
 				AB0000000000000000000016 /* XCLocalSwiftPackageReference "Packages/MisakiSwift" */,
+				AB0000000000000000000019 /* XCRemoteSwiftPackageReference "sherpa-onnx" */,
 			);
 			preferredProjectObjectVersion = 77;
 			productRefGroup = AB0000000000000000000005 /* Products */;
@@ -121,6 +128,7 @@
 			buildActionMask = 2147483647;
 			files = (
 				AB0000000000000000000012 /* KokoroRuntime in Resources */,
+				AB0000000000000000000018 /* PocketRuntime in Resources */,
 			);
 			runOnlyForDeploymentPostprocessing = 0;
 		};
@@ -284,6 +292,14 @@
 				revision = b23caa862f0585c2c65187d0fc97e0f8311041dc;
 			};
 		};
+		AB0000000000000000000019 /* XCRemoteSwiftPackageReference "sherpa-onnx" */ = {
+			isa = XCRemoteSwiftPackageReference;
+			repositoryURL = "https://github.com/k2-fsa/sherpa-onnx";
+			requirement = {
+				kind = exactVersion;
+				version = 2.0.1;
+			};
+		};
 /* End XCRemoteSwiftPackageReference section */
 
 /* Begin XCSwiftPackageProductDependency section */
@@ -291,6 +307,11 @@
 			isa = XCSwiftPackageProductDependency;
 			package = AB0000000000000000000013 /* XCRemoteSwiftPackageReference "kokoro-coreml" */;
 			productName = KokoroTTS;
+		};
+		AB000000000000000000001A /* sherpa-onnx */ = {
+			isa = XCSwiftPackageProductDependency;
+			package = AB0000000000000000000019 /* XCRemoteSwiftPackageReference "sherpa-onnx" */;
+			productName = "sherpa-onnx";
 		};
 /* End XCSwiftPackageProductDependency section */
 	};

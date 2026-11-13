@@ -1,5 +1,5 @@
 {
-  "originHash" : "28e38a77adc043c055ea5c4bb61c7ebbbdd44f89130f0d19911da69c7dfa7c90",
+  "originHash" : "6f47da01bf0877b9646ebe7089050b338198a31ca760ba76796c19f0e8fa419f",
   "pins" : [
     {
       "identity" : "kokoro-coreml",
@@ -25,6 +25,24 @@
       "state" : {
         "revision" : "41f6cfd5d68b65aa3c65a34efe3b71c371ed915b",
         "version" : "0.0.6"
+      }
+    },
+    {
+      "identity" : "onnxruntime-libs",
+      "kind" : "remoteSourceControl",
+      "location" : "https://github.com/csukuangfj/onnxruntime-libs",
+      "state" : {
+        "revision" : "8ebc5ebf92190903c274a7621ba4c96a732335ec",
+        "version" : "1.28.2"
+      }
+    },
+    {
+      "identity" : "sherpa-onnx",
+      "kind" : "remoteSourceControl",
+      "location" : "https://github.com/k2-fsa/sherpa-onnx",
+      "state" : {
+        "revision" : "af2d8d81dbfa61c4cea4c568da78f3982edca005",
+        "version" : "2.0.1"
       }
     },
     {

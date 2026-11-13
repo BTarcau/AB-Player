@@ -64,6 +64,14 @@ final class ReaderPlayer: RemoteTarget {
             let reason = (note.userInfo?[AVAudioSessionRouteChangeReasonKey] as? UInt).flatMap(AVAudioSession.RouteChangeReason.init)
             MainActor.assumeIsolated { if reason == .oldDeviceUnavailable { self?.pause() } }
         }
+        center.addObserver(forName: UIApplication.didReceiveMemoryWarningNotification, object: nil, queue: .main) { [weak self] _ in
+            MainActor.assumeIsolated {
+                // The cloned voice's model is the biggest thing the app holds; let it go
+                // unless it's reading right now.
+                guard let self, self.settings.source != .pocket || self.state == .idle else { return }
+                PocketEngine.shared.unload()
+            }
+        }
         center.addObserver(forName: .AVAudioEngineConfigurationChange, object: engine, queue: .main) { [weak self] _ in
             MainActor.assumeIsolated { self?.audioConfigurationChanged() }
         }
@@ -288,6 +296,7 @@ final class ReaderPlayer: RemoteTarget {
         let wasPlaying = state != .idle
         stopAudio()
         dropAll()
+        if settings.source != .pocket { PocketEngine.shared.unload() }
         if wasPlaying { speakCurrent(continuing: false) }
     }
 
@@ -335,6 +344,10 @@ final class ReaderPlayer: RemoteTarget {
     private static let inFlight = 2
     private static let lookahead: Double = 45
     private static let burstLookahead: Double = 240
+    /// Sentences kept ready however short they are.
+    private static let minAhead = 3
+    /// Played sentences kept in memory, for stepping back a little.
+    private static let keepBehind = 3
 
     // MARK: Background CPU pacing
     //
@@ -481,7 +494,7 @@ final class ReaderPlayer: RemoteTarget {
         var wanted: [(Int, Int)] = []
         var unit: (Int, Int)? = (ch, s)
         var sec = 0.0
-        while let u = unit, wanted.count < 2 || sec < ahead {
+        while let u = unit, wanted.count < Self.minAhead || sec < ahead {
             wanted.append(u)
             sec += unitSec(u.0, u.1)
             unit = unitAfter(u.0, u.1)
@@ -492,6 +505,13 @@ final class ReaderPlayer: RemoteTarget {
             if cache[job.entry.key] === job.entry { cache[job.entry.key] = nil }
             fail(job.entry, Dropped())
             return true
+        }
+        // Clips well behind the reading place go, or a long session holds every
+        // sentence it has read (hundreds of MB after an hour).
+        for (k, e) in cache where e.clip != nil {
+            let parts = k.split(separator: "-").compactMap { Int($0) }
+            guard parts.count == 2 else { continue }
+            if parts[0] < ch || (parts[0] == ch && parts[1] < s - Self.keepBehind) { cache[k] = nil }
         }
         for u in wanted { _ = entry(u.0, u.1) }
         queue.sort { (order[$0.entry.key] ?? 0) < (order[$1.entry.key] ?? 0) }
@@ -618,8 +638,7 @@ final class ReaderPlayer: RemoteTarget {
             return true
         case .pocket:
             if let reason = PocketEngine.unavailableReason {
-                status.line = reason
-                return false
+                return await fallBack(from: VoiceError.unavailable(reason))
             }
             if !PocketEngine.voices.contains(settings.pocketVoice) { settings.pocketVoice = PocketEngine.voices[0] }
             guard !PocketEngine.shared.isLoaded else { return true }
@@ -630,10 +649,20 @@ final class ReaderPlayer: RemoteTarget {
                 if status.line == loading { status.line = "" }
                 return true
             } catch {
-                status.line = error.localizedDescription
-                return false
+                return await fallBack(from: error)
             }
         }
+    }
+
+    /// The cloned voice couldn't run: carry on with Kokoro (or Apple's voice)
+    /// rather than stopping, and say why.
+    private func fallBack(from error: Error) async -> Bool {
+        let to: VoiceSource = KokoroEngine.unavailableReason == nil ? .kokoro : .device
+        settings.source = to
+        PocketEngine.shared.unload()
+        let ready = await ensureReady()
+        status.line = "The \(settings.pocketVoice.capitalized) voice couldn't run (\(error.localizedDescription)), so \(to.label) is reading."
+        return ready
     }
 
     nonisolated private static func generate(_ source: VoiceSource, text: String, voice: String, speed: Double) async throws -> AVAudioPCMBuffer {
@@ -679,6 +708,12 @@ final class ReaderPlayer: RemoteTarget {
             } catch {
                 guard myToken == token else { return }
                 failuresInARow += 1
+                if failuresInARow >= 3, settings.source == .pocket {
+                    failuresInARow = 0
+                    dropAll()
+                    if await fallBack(from: error), myToken == token { speakCurrent(continuing: false) }
+                    return
+                }
                 if failuresInARow >= 3 {
                     // Something is wrong with the voice itself; don't race through the book.
                     failuresInARow = 0

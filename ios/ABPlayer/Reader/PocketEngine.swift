@@ -52,6 +52,17 @@ final class PocketEngine: @unchecked Sendable {
 
     var isLoaded: Bool { lock.withLock { loaded } }
 
+    /// Frees the model (about 270 MB); the next sentence loads it again, which takes a moment.
+    func unload() {
+        queue.async {
+            #if canImport(SherpaOnnx)
+            self.tts = nil
+            #endif
+            self.references = [:]
+            self.lock.withLock { self.loaded = false }
+        }
+    }
+
     func prepare(voice: String) async throws {
         try await onQueue { try self.loadIfNeeded(voice: voice) }
     }
@@ -142,23 +153,6 @@ final class PocketEngine: @unchecked Sendable {
         PocketLog.write(String(format: "sentence %d chars: %.2f s audio in %.2f s (RTF %.2f), CPU %.2f s (CPU RTF %.2f), memory %.0f MB",
                                text.count, seconds, took, took / seconds, cpuTook, cpuTook / seconds, PocketLog.memoryMB())
                         + " | " + text)
-        #if DEBUG
-        if ReaderPlayer.spikeRun {
-            // Every clip with its text, to check on the Mac for drift into gibberish.
-            let dir = FileManager.default.urls(for: .cachesDirectory, in: .userDomainMask)[0].appendingPathComponent("pocket-clips")
-            try? FileManager.default.createDirectory(at: dir, withIntermediateDirectories: true)
-            let stem = String(format: "%010.0f", Date().timeIntervalSince1970 * 10)
-            if let file = try? AVAudioFile(forWriting: dir.appendingPathComponent(stem + ".wav"), settings: ClipAudio.format.settings) { try? file.write(from: buf) }
-            try? text.write(to: dir.appendingPathComponent(stem + ".txt"), atomically: true, encoding: .utf8)
-        }
-        if seconds > 2 + Double(text.count) * 0.12 {
-            // Far longer than the words need: keep it to listen to.
-            let name = "pocket-long-\(Int(Date().timeIntervalSince1970)).wav"
-            let url = FileManager.default.urls(for: .cachesDirectory, in: .userDomainMask)[0].appendingPathComponent(name)
-            if let file = try? AVAudioFile(forWriting: url, settings: ClipAudio.format.settings) { try? file.write(from: buf) }
-            PocketLog.write("TOO LONG, saved as \(name)")
-        }
-        #endif
         return buf
         #else
         throw VoiceError.unavailable(Self.unavailableReason ?? "")
@@ -178,7 +172,8 @@ final class PocketEngine: @unchecked Sendable {
     }
 }
 
-/// Spike measurements: a line per event in Library/Caches/pocket-spike.log and the system log.
+/// Measurements for test runs (debug builds launched with -pocketSpike): a line
+/// per event in Library/Caches/pocket-spike.log and the system log.
 enum PocketLog {
     private static let logger = Logger(subsystem: "com.bentarcau.lamplight", category: "pocket")
     private static let lock = NSLock()
@@ -187,6 +182,7 @@ enum PocketLog {
     }
 
     static func write(_ message: String) {
+        guard ReaderPlayer.spikeRun else { return }
         let at = Date()
         DispatchQueue.main.async {
             let state = MainActor.assumeIsolated { UIApplication.shared.applicationState == .background ? "bg" : "fg" }

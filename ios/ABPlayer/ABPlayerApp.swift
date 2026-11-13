@@ -30,6 +30,10 @@ struct ABPlayerApp: App {
                         let voice = readerSettings.kokoroVoice
                         Task.detached(priority: .utility) { try? await KokoroEngine.shared.prepare(voice: voice) }
                     }
+                    if readerSettings.source == .pocket, PocketEngine.unavailableReason == nil {
+                        let voice = readerSettings.pocketVoice
+                        Task.detached(priority: .utility) { try? await PocketEngine.shared.prepare(voice: voice) }
+                    }
                     player.restoreLast()
                     // If an EPUB/PDF was the last thing read, have it ready in the reader too.
                     let lastText = library.books.filter { $0.isText && $0.lastPlayed != nil }.max { $0.lastPlayed! < $1.lastPlayed! }
